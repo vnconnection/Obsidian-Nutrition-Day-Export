@@ -32,7 +32,7 @@ export default class NutritionDayExportPlugin extends Plugin {
 
     this.addCommand({
       id: "open-nutrition-day-export",
-      name: "Open nutrition day export",
+      name: "Open Modal",
       callback: () => {
         this.openExportModal();
       },
