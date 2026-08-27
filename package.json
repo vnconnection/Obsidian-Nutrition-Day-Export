@@ -1,6 +1,6 @@
 {
   "name": "nutrition-day-export",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Export #food nutrition lines from an Obsidian daily note.",
   "private": true,
   "main": "main.js",

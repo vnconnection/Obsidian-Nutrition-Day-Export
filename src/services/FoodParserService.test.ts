@@ -10,8 +10,8 @@ describe("FoodParserService", () => {
     const markdown = `# Title
 
 ## Nutrition
-#food [[Tvaroh odtučněný zelený (Pilos)|Творог]] 100g
-#food Запеканка 150g 6.72sugar 2.01fiber 192.52sodium 309.10kcal 27.82prot 14.24fat 8.28satfat 15.63carbs
+#food [[Low-fat cottage cheese (Pilos)|Cottage cheese]] 100g
+#food Baked casserole 150g 6.72sugar 2.01fiber 192.52sodium 309.10kcal 27.82prot 14.24fat 8.28satfat 15.63carbs
 
 ## Sport
 #food [[Ignored]] 10g`;
@@ -28,14 +28,40 @@ describe("FoodParserService", () => {
       ok: true,
       entry: {
         kind: "linked",
-        displayName: "Творог",
+        displayName: "Cottage cheese",
       },
     });
     expect(result.results[1]).toMatchObject({
       ok: true,
       entry: {
         kind: "inline",
-        displayName: "Запеканка",
+        displayName: "Baked casserole",
+      },
+    });
+  });
+
+  it("parses the Food Recalculator format with a price and trailing calorie duplicate", () => {
+    const markdown = `## Nutrition
+#food Casserole with boiled chicken fillet, rice, and carrots 217g 0.79€ 392.84kcal 53.06prot 10.10fat 2.98satfat 18.24carbs 2.74sugar 3.34fiber 192.18sodium 393kcal`;
+
+    const result = parserService.parseNutritionSection(
+      dailyFile,
+      markdown,
+      "## Nutrition",
+    );
+
+    expect(result.results[0]).toMatchObject({
+      ok: true,
+      entry: {
+        kind: "inline",
+        displayName: "Casserole with boiled chicken fillet, rice, and carrots",
+        price: 0.79,
+        amount: { value: 217, unit: "g" },
+        metrics: {
+          kcal: 392.84,
+          prot: 53.06,
+          sodium: 192.18,
+        },
       },
     });
   });
@@ -65,9 +91,9 @@ describe("FoodParserService", () => {
 
   it("keeps the nearest Nutrition subsection on each food entry", () => {
     const markdown = `## Nutrition
-# Завтрак 8:30
+# Breakfast 8:30
 #food [[Breakfast food]] 20g
-## Обед 14:30
+## Lunch 14:30
 #food [[Lunch food]] 30g
 #food [[Second lunch food]] 40g`;
 
@@ -79,9 +105,9 @@ describe("FoodParserService", () => {
     );
 
     expect(result.results).toMatchObject([
-      { ok: true, entry: { source: { sectionHeading: "Завтрак 8:30" } } },
-      { ok: true, entry: { source: { sectionHeading: "Обед 14:30" } } },
-      { ok: true, entry: { source: { sectionHeading: "Обед 14:30" } } },
+      { ok: true, entry: { source: { sectionHeading: "Breakfast 8:30" } } },
+      { ok: true, entry: { source: { sectionHeading: "Lunch 14:30" } } },
+      { ok: true, entry: { source: { sectionHeading: "Lunch 14:30" } } },
     ]);
   });
 
@@ -201,7 +227,7 @@ Notes with no food entries.`;
 
   it("returns a structured error for an inline entry with missing nutrition fields", () => {
     const markdown = `## Nutrition
-#food Запеканка 150g 309.10kcal 27.82prot`;
+#food Baked casserole 150g 309.10kcal 27.82prot`;
 
     const result = parserService.parseNutritionSection(
       dailyFile,
@@ -214,18 +240,18 @@ Notes with no food entries.`;
       ok: false,
       error: {
         code: "incomplete_nutrition_line",
-        productName: "Запеканка",
+        productName: "Baked casserole",
         reason: "Inline food must contain all nutrition fields exactly once.",
         sourcePath: "Diary/2026.07.18.md",
         lineNumber: 2,
-        rawEntry: "#food Запеканка 150g 309.10kcal 27.82prot",
+        rawEntry: "#food Baked casserole 150g 309.10kcal 27.82prot",
       },
     });
   });
 
   it("returns a structured error for an unknown unit token", () => {
     const markdown = `## Nutrition
-#food [[Tvaroh]] 100oz`;
+#food [[Cottage cheese]] 100oz`;
 
     const result = parserService.parseNutritionSection(
       dailyFile,
@@ -237,11 +263,11 @@ Notes with no food entries.`;
       ok: false,
       error: {
         code: "unknown_unit",
-        productName: "Tvaroh",
+        productName: "Cottage cheese",
         reason: 'Unknown unit "oz".',
         sourcePath: "Diary/2026.07.18.md",
         lineNumber: 2,
-        rawEntry: "#food [[Tvaroh]] 100oz",
+        rawEntry: "#food [[Cottage cheese]] 100oz",
       },
     });
   });

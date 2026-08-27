@@ -6,7 +6,7 @@ describe("formatFoodLine", () => {
     const line = formatFoodLine(
       {
         kind: "inline",
-        name: "Творог",
+        name: "Cottage cheese",
         amount: 10,
         unit: "g",
         sourcePath: "day.md",
@@ -30,7 +30,7 @@ describe("formatFoodLine", () => {
       },
     );
     expect(line).toBe(
-      "Творог 10.00г\n6.60kcal 1.20prot 0.05fat 0.02satfat 0.40carbs 0.40sugar 0.00fiber 0.01sodium",
+      "#food Cottage cheese 10г 6.60kcal 1.20prot 0.05fat 0.02satfat 0.40carbs 0.40sugar 0.00fiber 0.01sodium",
     );
   });
 });

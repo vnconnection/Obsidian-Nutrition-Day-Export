@@ -13,7 +13,7 @@ import type {
   ParseResult,
   StructuredError,
 } from "../types";
-import { formatNumber } from "../utils/numberUtils";
+import { formatAmount, formatNumber } from "../utils/numberUtils";
 import { DailyNoteService } from "./DailyNoteService";
 import { FoodParserService } from "./FoodParserService";
 import { NutrientCatalogService } from "./NutrientCatalogService";
@@ -143,6 +143,7 @@ export class ExportService {
         line: this.createExportLine(
           entryResult.entry.displayName,
           entryResult.entry.amount,
+          entryResult.entry.price,
           entryResult.entry.metrics,
           entryResult.entry.source,
           settings,
@@ -188,6 +189,7 @@ export class ExportService {
       line: this.createExportLine(
         entryResult.entry.displayName,
         entryResult.entry.amount,
+        entryResult.entry.price,
         calculation.metrics,
         entryResult.entry.source,
         settings,
@@ -199,13 +201,16 @@ export class ExportService {
   private createExportLine(
     productName: string,
     amount: ExportLine["amount"],
+    price: ExportLine["price"],
     metrics: ExportLine["metrics"],
     source: ExportLine["source"],
     settings: NutritionDayExportSettings,
   ): ExportLine {
     const unitLabel =
       OUTPUT_UNIT_LABELS[settings.outputUnitFormat][amount.unit];
-    const formattedAmount = `${formatNumber(amount.value, settings.decimalPlaces)}${unitLabel}`;
+    const formattedAmount = `${formatAmount(amount.value, settings.decimalPlaces)}${unitLabel}`;
+    const formattedPrice =
+      price === null ? "" : ` ${formatNumber(price, 2)}€`;
     const metricSegments = [
       `${formatNumber(metrics.kcal, settings.decimalPlaces)}kcal`,
       `${formatNumber(metrics.prot, settings.decimalPlaces)}prot`,
@@ -221,11 +226,12 @@ export class ExportService {
       productName,
       amount,
       metrics,
+      price,
       source,
       ...(source.sectionHeading
         ? { sectionHeading: source.sectionHeading }
         : {}),
-      text: `${productName} ${formattedAmount}\n${metricSegments.join(" ")}`,
+      text: `#food ${productName} ${formattedAmount}${formattedPrice} ${metricSegments.join(" ")}`,
     };
   }
 
