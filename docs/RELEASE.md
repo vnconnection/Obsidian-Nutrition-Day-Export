@@ -19,44 +19,40 @@ Date: YYYY-MM-DD
 
 Short, user-visible summary.
 
-## Impact
+Impact: patch
 
-patch
+Rationale: Why this impact classification is correct for existing users.
 
-## Rationale
-
-Why this impact classification is correct for existing users.
-
-## Fixed
+## User-visible changes
 
 - Concrete user-visible change.
 ```
 
-Only `Summary`, `Impact`, `Rationale`, `Added`, `Changed`, `Fixed`, `Breaking
+Only `Summary`, `User-visible changes`, `Added`, `Changed`, `Fixed`, `Breaking
 changes`, `Migration`, and `Documentation` headings are valid. `Summary`,
-`Impact`, and `Rationale` must contain meaningful content, and the notes must
+`Impact:` and `Rationale:` fields must contain meaningful content, and the notes must
 contain a concrete user-visible change. For `major`/`breaking` impact, include
 both `Breaking changes` and `Migration` sections with meaningful content. The
 GitHub Release body is taken from this notes file, not generated automatically.
 
 ## Local preparation
 
-Start from a clean worktree and select the impact explicitly:
+Start from a clean worktree and select the canonical impact explicitly:
 
 ```bash
-corepack pnpm run release:prepare -- --impact fix
-corepack pnpm run release:prepare -- --impact feat
-corepack pnpm run release:prepare -- --impact breaking
+corepack pnpm run release:prepare -- --impact patch
+corepack pnpm run release:prepare -- --impact minor
+corepack pnpm run release:prepare -- --impact major
 ```
 
-The classifier returns `breaking`, `feat`, `fix`, `perf`, `docs`, `test`,
-`chore`, `ci`, `build`, `refactor`, `style`, `major`, `minor`, `patch`, `none`,
-or `unknown`. A mixed result containing `unknown` is `unknown` and blocks
-version selection. `BREAKING-CHANGE` footers and conventional-commit `!`
-headers classify as `breaking`.
+The classifier returns the canonical impacts `major`, `minor`, `patch`, `none`,
+or `unknown`. Conventional headers map `feat` to `minor`, `fix` and `perf` to
+`patch`, and documentation/test/maintenance types to `none`. A `!` header or a
+`BREAKING-CHANGE` footer maps to `major`. A mixed result containing `unknown`
+is `unknown` and blocks version selection.
 
-`major`/`breaking` maps to `(X+1).0.0`, `minor`/`feat` maps to `X.(Y+1).0`,
-and patch impacts map to `X.Y.(Z+1)`, including when `X` is `0`. Preparation
+`major` maps to `(X+1).0.0`, `minor` maps to `X.(Y+1).0`, and `patch` maps to
+`X.Y.(Z+1)`, including when `X` is `0`. Preparation
 runs the pnpm typecheck, tests, lint, and production build, then updates
 package and plugin metadata. It never stages, commits, tags, pushes a branch
 or tag, creates or edits a GitHub Release, or uploads assets. `unknown` and
@@ -65,7 +61,7 @@ or tag, creates or edits a GitHub Release, or uploads assets. `unknown` and
 To inspect an advisory without changing files:
 
 ```bash
-corepack pnpm run release:classify -- "BREAKING-CHANGE: migrate metadata"
+corepack pnpm run release:classify -- $'feat: change export format\n\nBREAKING-CHANGE: migrate callers'
 ```
 
 The safe aliases `release:patch`, `release:minor`, and `release:major` invoke

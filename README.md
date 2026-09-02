@@ -73,9 +73,9 @@ For a release, first author `docs/releases/<X.Y.Z>.md`, then prepare the version
 from a clean worktree with an explicit impact:
 
 ```bash
-corepack pnpm run release:prepare -- --impact fix
-corepack pnpm run release:prepare -- --impact feat
-corepack pnpm run release:prepare -- --impact breaking
+corepack pnpm run release:prepare -- --impact patch
+corepack pnpm run release:prepare -- --impact minor
+corepack pnpm run release:prepare -- --impact major
 
 # Safe aliases for the same explicit local preparation
 corepack pnpm run release:patch

@@ -15,28 +15,13 @@ export const RELEASE_MANIFEST_ID = "nutrition-day-export";
 export const RELEASE_NOTES_DIRECTORY = join("docs", "releases");
 export const SEMVER_TAG_PATTERN =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
-export const RELEASE_IMPACTS = [
-  "breaking",
-  "feat",
-  "fix",
-  "perf",
-  "docs",
-  "test",
-  "chore",
-  "ci",
-  "build",
-  "refactor",
-  "style",
-  "major",
-  "minor",
-  "patch",
-  "none",
-  "unknown",
-];
+export const RELEASE_IMPACTS = ["major", "minor", "patch", "none", "unknown"];
 
-const PATCH_IMPACTS = new Set([
-  "fix",
-  "perf",
+const CLASSIFIER_RANK = new Map(
+  RELEASE_IMPACTS.map((impact, index) => [impact, index]),
+);
+const PATCH_TYPES = new Set(["fix", "perf"]);
+const NONE_TYPES = new Set([
   "docs",
   "test",
   "chore",
@@ -44,23 +29,12 @@ const PATCH_IMPACTS = new Set([
   "build",
   "refactor",
   "style",
-  "patch",
 ]);
-const CLASSIFIER_ORDER = [
-  "breaking",
-  "major",
-  "feat",
-  "minor",
-  ...PATCH_IMPACTS,
-  "none",
-];
-const CLASSIFIER_RANK = new Map(
-  CLASSIFIER_ORDER.map((impact, index) => [impact, index]),
-);
+const CONVENTIONAL_HEADER_PATTERN =
+  /^([a-z][a-z0-9-]*)(?:\([^\r\n()]+\))?(!)?:[ \t]+\S.*$/i;
 const NOTE_HEADINGS = new Set([
   "Summary",
-  "Impact",
-  "Rationale",
+  "User-visible changes",
   "Added",
   "Changed",
   "Fixed",
@@ -105,16 +79,18 @@ function advisoryText(advisory) {
     return advisory;
   }
   if (advisory && typeof advisory === "object") {
-    return [
-      advisory.type,
+    const explicitHeader =
+      typeof advisory.header === "string" ? advisory.header.trim() : "";
+    const type = typeof advisory.type === "string" ? advisory.type.trim() : "";
+    const subject = [
       advisory.title,
       advisory.subject,
       advisory.message,
-      advisory.body,
-      advisory.footer,
       advisory.description,
-    ]
-      .filter((value) => typeof value === "string")
+    ].find((value) => typeof value === "string" && value.trim());
+    const generatedHeader = type && subject ? `${type}: ${subject.trim()}` : "";
+    return [explicitHeader || generatedHeader, advisory.body, advisory.footer]
+      .filter((value) => typeof value === "string" && value.trim())
       .join("\n");
   }
   return "";
@@ -125,35 +101,21 @@ function classifySingleAdvisory(advisory) {
   const normalizedText = text.toLowerCase();
   if (!normalizedText) return "unknown";
 
-  if (
-    normalizedText === "breaking" ||
-    /(?:^|[\r\n])\s*breaking(?:[- ]change)?\s*:/im.test(text) ||
-    /\bbreaking[- ]change\b/i.test(text) ||
-    /(?:^|[\r\n])\s*[a-z][\w-]*(?:\([^\r\n)]*\))?!\s*(?::|$)/im.test(text)
-  ) {
-    return "breaking";
-  }
+  if (RELEASE_IMPACTS.includes(normalizedText)) return normalizedText;
 
-  const matchesConventionalType = (impact) =>
-    new RegExp(
-      `(?:^|[\\s(:])${impact}(?:\\([^)]*\\))?(?=\\s*(?::|!|$|\\r?\\n))`,
-      "i",
-    ).test(text);
+  const lines = text.split(/\r?\n/);
+  const headerMatch = CONVENTIONAL_HEADER_PATTERN.exec(lines[0].trim());
+  if (!headerMatch) return "unknown";
 
-  if (matchesConventionalType("feat") || normalizedText === "minor") {
-    return normalizedText === "minor" ? "minor" : "feat";
-  }
+  const hasBreakingFooter = lines.slice(1).some((line) =>
+    /^BREAKING[- ]CHANGE[ \t]*:[ \t]*\S.*$/i.test(line.trim()),
+  );
+  if (headerMatch[2] === "!" || hasBreakingFooter) return "major";
 
-  for (const impact of PATCH_IMPACTS) {
-    if (matchesConventionalType(impact) || normalizedText === impact) {
-      return impact;
-    }
-  }
-
-  if (normalizedText === "major" || normalizedText === "none") {
-    return normalizedText;
-  }
-
+  const type = headerMatch[1].toLowerCase();
+  if (type === "feat") return "minor";
+  if (PATCH_TYPES.has(type)) return "patch";
+  if (NONE_TYPES.has(type)) return "none";
   return "unknown";
 }
 
@@ -173,10 +135,11 @@ export function classifyAdvisory(advisory) {
 export const classifyImpact = classifyAdvisory;
 
 export function impactToBump(impact) {
-  if (impact === "breaking" || impact === "major") return "major";
-  if (impact === "feat" || impact === "minor") return "minor";
-  if (PATCH_IMPACTS.has(impact)) return "patch";
-  return null;
+  return RELEASE_IMPACTS.includes(impact) &&
+      impact !== "none" &&
+      impact !== "unknown"
+    ? impact
+    : null;
 }
 
 export function calculateNextVersion(currentVersion, impact) {
@@ -218,7 +181,7 @@ function isGenericText(text) {
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\[[^\]]*\]\s*/gm, "")
     .trim();
-  return /^(?:update|todo|tbd|n\/a|user-visible .+|required only when applicable)\.?$/i.test(
+  return /^(?:update|todo|tbd|n\/a|tbc|user-visible .+|required only when applicable)\.?$/i.test(
     normalizedText,
   );
 }
@@ -239,9 +202,16 @@ function assertReleaseNotes(rootDirectory, version) {
   if (!new RegExp(`^# Release ${escapedVersion}\\s*$`, "m").test(notes)) {
     throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
   }
-  const dateMatch = notes.match(/^Date: (\d{4}-\d{2}-\d{2})\s*$/m);
+  const dateMatches = [...notes.matchAll(/^Date: (\d{4}-\d{2}-\d{2})\s*$/gm)];
+  const dateMatch = dateMatches[0];
   const date = dateMatch ? new Date(`${dateMatch[1]}T00:00:00.000Z`) : null;
-  if (!dateMatch || !date || Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== dateMatch[1]) {
+  if (
+    dateMatches.length !== 1 ||
+    !dateMatch ||
+    !date ||
+    Number.isNaN(date.valueOf()) ||
+    date.toISOString().slice(0, 10) !== dateMatch[1]
+  ) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
   const headings = [...notes.matchAll(/^## ([^\n]+)\s*$/gm)];
@@ -251,20 +221,26 @@ function assertReleaseNotes(rootDirectory, version) {
     }
   }
   assertMeaningfulSection(notes, "Summary", notesPath);
-  const impactSection = assertMeaningfulSection(notes, "Impact", notesPath);
-  assertMeaningfulSection(notes, "Rationale", notesPath);
-  const noteImpact = classifyAdvisory(impactSection);
+  assertMeaningfulSection(notes, "User-visible changes", notesPath);
+  const impactMatches = [
+    ...notes.matchAll(/^Impact:[ \t]*(major|minor|patch|none|unknown)[ \t]*$/gm),
+  ];
+  const rationaleMatches = [...notes.matchAll(/^Rationale:[ \t]*(\S.*)$/gm)];
+  if (impactMatches.length !== 1) {
+    throw new Error(`Release notes Impact: field is missing or invalid: ${notesPath}`);
+  }
+  if (
+    rationaleMatches.length !== 1 ||
+    isGenericText(rationaleMatches[0][1])
+  ) {
+    throw new Error(`Release notes Rationale: field is missing or generic: ${notesPath}`);
+  }
+  const noteImpact = impactMatches[0][1];
   if (noteImpact === "unknown" || noteImpact === "none") {
     throw new Error(`Release notes Impact must identify a release impact: ${notesPath}`);
   }
 
-  const concreteHeadings = new Set([
-    "Added",
-    "Changed",
-    "Fixed",
-    "Breaking changes",
-    "Documentation",
-  ]);
+  const concreteHeadings = new Set(["User-visible changes"]);
   const concreteChange = headings.some(([, heading]) => {
     const normalizedHeading = heading.trim();
     if (!concreteHeadings.has(normalizedHeading)) return false;
@@ -294,6 +270,7 @@ export function validateRelease({ rootDirectory = process.cwd(), expectedVersion
   if (manifest.id !== RELEASE_MANIFEST_ID) {
     throw new Error(`manifest.json id must be ${RELEASE_MANIFEST_ID}`);
   }
+  assertBareSemver(manifest.version, "manifest.json version");
   if (manifest.version !== packageVersion) {
     throw new Error(`manifest.json version (${manifest.version}) does not match package.json version (${packageVersion})`);
   }
@@ -306,7 +283,11 @@ export function validateRelease({ rootDirectory = process.cwd(), expectedVersion
   const versionsPath = join(rootDirectory, "versions.json");
   if (!existsSync(versionsPath)) throw new Error("versions.json is missing");
   const versions = readJson(versionsPath);
-  if (typeof manifest.minAppVersion !== "string" || versions[packageVersion] !== manifest.minAppVersion) {
+  if (
+    typeof manifest.minAppVersion !== "string" ||
+    !manifest.minAppVersion.trim() ||
+    versions[packageVersion] !== manifest.minAppVersion
+  ) {
     throw new Error(`versions.json entry for ${packageVersion} does not match manifest.json minAppVersion`);
   }
   const releaseAssets = assetNames(rootDirectory);
@@ -325,8 +306,23 @@ function assertArchiveLayout(rootDirectory, archivePath, expectedEntries) {
   assertNonEmptyFile(archivePath, "Release package");
   const output = readOutput("unzip", ["-Z1", archivePath], rootDirectory);
   const actualEntries = output ? output.split("\n") : [];
-  if (actualEntries.length !== expectedEntries.length || actualEntries.some((entry, index) => entry !== expectedEntries[index])) {
+  const actualSet = [...new Set(actualEntries)].sort();
+  const expectedSet = [...new Set(expectedEntries)].sort();
+  if (
+    actualEntries.length !== expectedEntries.length ||
+    actualSet.length !== expectedEntries.length ||
+    actualSet.some((entry, index) => entry !== expectedSet[index])
+  ) {
     throw new Error(`Release package must contain exactly ${expectedEntries.join(", ")}`);
+  }
+  for (const entry of expectedEntries) {
+    const archiveBytes = execFileSync("unzip", ["-p", archivePath, entry], {
+      cwd: rootDirectory,
+    });
+    const sourceBytes = readFileSync(join(rootDirectory, entry));
+    if (!archiveBytes.equals(sourceBytes)) {
+      throw new Error(`Release package entry does not match ${entry}`);
+    }
   }
   return actualEntries;
 }
@@ -367,15 +363,8 @@ function updateMetadata(rootDirectory, version) {
 }
 
 export function prepareRelease({ rootDirectory = process.cwd(), impact, runChecks = runRepositoryChecks } = {}) {
-  if (
-    typeof impact !== "string" ||
-    !RELEASE_IMPACTS.includes(impact) ||
-    impact === "unknown" ||
-    impact === "none"
-  ) {
-    throw new Error(
-      "prepare requires an explicit --impact: major, minor, patch, breaking, feat, fix, perf, docs, test, chore, ci, build, refactor, or style",
-    );
+  if (typeof impact !== "string" || !["major", "minor", "patch"].includes(impact)) {
+    throw new Error("prepare requires an explicit --impact: major, minor, or patch");
   }
   const currentVersion = readJson(join(rootDirectory, "package.json")).version;
   const nextVersion = calculateNextVersion(currentVersion, impact);

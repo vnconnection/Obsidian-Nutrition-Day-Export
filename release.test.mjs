@@ -35,15 +35,11 @@ Date: 2026-09-02
 
 Exports now validate release metadata before packaging.
 
-## Impact
+Impact: patch
 
-patch
+Rationale: The release gate must reject incomplete plugin packages before publication.
 
-## Rationale
-
-The release gate must reject incomplete plugin packages before publication.
-
-## Fixed
+## User-visible changes
 
 - Rejects mismatched plugin metadata before a release is published.
 `;
@@ -56,13 +52,13 @@ Date: 2026-09-02
 
 The export contract now requires the new metadata format.
 
-## Impact
+Impact: major
 
-major
+Rationale: Existing release metadata is no longer sufficient for this contract.
 
-## Rationale
+## User-visible changes
 
-Existing release metadata is no longer sufficient for this contract.
+- Release preparation now requires an explicit impact classification.
 
 ## Breaking changes
 
@@ -103,20 +99,19 @@ afterEach(() => {
 
 describe("release impact classification", () => {
   it("classifies conventional advisories and structured messages", () => {
-    assert.equal(classifyAdvisory("fix: correct nutrition export"), "fix");
-    assert.equal(classifyAdvisory({ type: "feat", title: "Add date picker" }), "feat");
-    assert.equal(classifyAdvisory("docs(release): document BRAT assets"), "docs");
+    assert.equal(classifyAdvisory("fix: correct nutrition export"), "patch");
+    assert.equal(classifyAdvisory({ type: "feat", title: "Add date picker" }), "minor");
+    assert.equal(classifyAdvisory("docs(release): document BRAT assets"), "none");
+    assert.equal(classifyAdvisory("feat!: change export format"), "major");
+    assert.equal(classifyAdvisory("feat: change export format\n\nBREAKING CHANGE: migrate callers"), "major");
   });
 
-  it("uses breaking, feature, then patch precedence for mixed advisories", () => {
-    assert.equal(classifyAdvisory(["fix: patch", "feat: capability", "breaking change: migration"]), "breaking");
-    assert.equal(classifyAdvisory(["fix: patch", "feat: capability"]), "feat");
-    assert.equal(classifyAdvisory(["fix: patch", "docs: notes"]), "fix");
+  it("uses major, minor, then patch precedence for mixed advisories", () => {
+    assert.equal(classifyAdvisory(["fix: patch", "feat: capability", "feat!: migration"]), "major");
+    assert.equal(classifyAdvisory(["fix: patch", "feat: capability"]), "minor");
+    assert.equal(classifyAdvisory(["fix: patch", "docs: notes"]), "patch");
     assert.equal(classifyAdvisory(["fix: patch", "unclassified change"]), "unknown");
-    assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate release metadata"), "breaking");
-    assert.equal(calculateNextVersion("0.2.0", "breaking"), "1.0.0");
-    assert.equal(calculateNextVersion("0.2.0", "feat"), "0.3.0");
-    assert.equal(calculateNextVersion("0.2.0", "fix"), "0.2.1");
+    assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate release metadata"), "unknown");
     assert.equal(calculateNextVersion("0.2.0", "major"), "1.0.0");
     assert.equal(calculateNextVersion("0.2.0", "minor"), "0.3.0");
     assert.equal(calculateNextVersion("0.2.0", "patch"), "0.2.1");
@@ -160,14 +155,14 @@ describe("release notes and metadata validation", () => {
 
   it("requires impact and rationale sections", () => {
     const rootDirectory = createFixture({
-      notes: "# Release 0.2.0\n\nDate: 2026-09-02\n\n## Summary\n\nA real summary.\n\n## Fixed\n\n- A concrete correction for users.\n",
+      notes: "# Release 0.2.0\n\nDate: 2026-09-02\n\n## Summary\n\nA real summary.\n\n## User-visible changes\n\n- A concrete correction for users.\n",
     });
-    assert.throws(() => validateRelease({ rootDirectory }), /Impact section/);
+    assert.throws(() => validateRelease({ rootDirectory }), /Impact:/);
 
     const rationaleRoot = createFixture({
-      notes: validNotes("0.2.0").replace("## Rationale\n\nThe release gate must reject incomplete plugin packages before publication.\n", ""),
+      notes: validNotes("0.2.0").replace("Rationale: The release gate must reject incomplete plugin packages before publication.\n", ""),
     });
-    assert.throws(() => validateRelease({ rootDirectory: rationaleRoot }), /Rationale section/);
+    assert.throws(() => validateRelease({ rootDirectory: rationaleRoot }), /Rationale:/);
   });
 
   it("requires breaking changes and migration sections for major impact", () => {
@@ -224,9 +219,9 @@ describe("release assets and side-effect boundaries", () => {
     runGit(rootDirectory, ["commit", "-qm", "fixture"]);
     const initialHead = runGit(rootDirectory, ["rev-parse", "HEAD"]);
     const checks = [];
-    const result = prepareRelease({ rootDirectory, impact: "fix", runChecks: (directory) => checks.push(directory) });
+    const result = prepareRelease({ rootDirectory, impact: "patch", runChecks: (directory) => checks.push(directory) });
 
-    assert.deepEqual(result, { currentVersion: "0.2.0", nextVersion: "0.2.1", impact: "fix", bump: "patch" });
+    assert.deepEqual(result, { currentVersion: "0.2.0", nextVersion: "0.2.1", impact: "patch", bump: "patch" });
     assert.deepEqual(checks, [rootDirectory]);
     assert.equal(runGit(rootDirectory, ["rev-parse", "HEAD"]), initialHead);
     assert.equal(runGit(rootDirectory, ["tag", "--list"]), "");
@@ -244,7 +239,7 @@ describe("release assets and side-effect boundaries", () => {
     writeFileSync(join(rootDirectory, "uncommitted.txt"), "keep me\n");
     let checksRun = false;
     assert.throws(
-      () => prepareRelease({ rootDirectory, impact: "fix", runChecks: () => { checksRun = true; } }),
+      () => prepareRelease({ rootDirectory, impact: "patch", runChecks: () => { checksRun = true; } }),
       /clean worktree/,
     );
     assert.equal(checksRun, false);
