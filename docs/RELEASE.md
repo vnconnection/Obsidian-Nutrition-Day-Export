@@ -37,9 +37,9 @@ appear as inline lines before `## Summary` in the order `Date`, `Impact`,
 `Rationale`. All three fields and the required sections must contain meaningful
 content. Validation accepts `none` and `unknown` so a no-release decision or a
 blocking classification can be recorded and checked; neither is a bumpable
-impact or a basis for release preparation. The notes must contain a concrete
-user-visible change. The GitHub Release body is taken from this notes file, not
-generated automatically.
+impact or a basis for release preparation, packaging, or publication. The notes
+must contain a concrete user-visible change. The GitHub Release body is taken
+from this notes file, not generated automatically.
 
 ## Local preparation
 
@@ -82,20 +82,24 @@ corepack pnpm run release:package -- <X.Y.Z> artifacts/nutrition-day-export-<X.Y
 ```
 
 `release:validate` is read-only and checks notes, metadata, and non-empty root
-assets. `release:package` only creates a local ZIP; it contains exactly
+assets. `release:publish-check` performs the same validation and then rejects
+`none` and `unknown` before a publishable boundary. `release:package` applies
+that same rejection and only creates a local ZIP; it contains exactly
 `main.js`, `manifest.json`, and `styles.css` when present, directly at the
 archive root. Neither command publishes anything. The workflow additionally
-checks the remote tag target, release status, exact asset set, non-zero sizes,
-and SHA-256 digests for every published asset.
+checks the tracked generated `main.js` after build, rejects `none` and
+`unknown`, checks the remote tag target, release status, exact asset set,
+non-zero sizes, and SHA-256 digests for every published asset.
 
 ## GitHub Actions
 
 `.github/workflows/release.yml` runs only for bare semver tags. Its glob admits
 both `0.x.y` and non-zero major versions; the shell semver check enforces the
 exact `X.Y.Z` form. It installs dependencies with `pnpm install --frozen-lockfile`, runs typecheck, tests, lint,
-the production build, and release tests, then validates metadata/assets and
-packages the root-layout ZIP. The workflow creates or updates the GitHub
-Release with the authored notes and uploads `main.js`, `manifest.json`, the
+the production build, and release tests, then verifies tracked generated
+`main.js` provenance, validates metadata/assets, rejects non-publishable
+impacts, and packages the root-layout ZIP. The workflow creates or updates the
+GitHub Release with the authored notes and uploads `main.js`, `manifest.json`, the
 optional `styles.css`, and the ZIP. A final API read verifies the tag, exact
 authored body, exact asset set (including absence of stale extras), non-empty
 assets, and SHA-256 digests.

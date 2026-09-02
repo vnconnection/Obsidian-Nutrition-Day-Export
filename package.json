@@ -26,6 +26,8 @@
     "release:minor": "node release.mjs prepare --impact minor",
     "release:major": "node release.mjs prepare --impact major",
     "release:validate": "node release.mjs validate",
+    "release:publish-check": "node release.mjs publish-check",
+    "release:verify-bundle": "node release.mjs verify-bundle",
     "release:package": "node release.mjs package"
   },
   "devDependencies": {

@@ -54,8 +54,14 @@ jobs:
           pnpm run build
           node --test release.test.mjs
 
+      - name: Verify tracked generated bundle
+        run: pnpm run release:verify-bundle
+
       - name: Validate release metadata and assets
         run: pnpm run release:validate -- "$RELEASE_TAG"
+
+      - name: Enforce publishable release impact
+        run: pnpm run release:publish-check -- "$RELEASE_TAG"
 
       - name: Package release assets
         run: pnpm run release:package -- "$RELEASE_TAG" "artifacts/nutrition-day-export-$RELEASE_TAG.zip"

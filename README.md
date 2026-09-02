@@ -89,7 +89,8 @@ publish or stage files. Use `corepack pnpm run release:classify -- <advisory>`
 to classify a release advisory without changing files. The canonical notes put
 `Date`, `Impact`, and `Rationale` inline before `## Summary`. Validation accepts
 `none` and `unknown` for recorded no-release or blocking decisions, while
-preparation accepts only bumpable `major`, `minor`, or `patch` impacts. See
+preparation, packaging, and the publish workflow accept only bumpable `major`,
+`minor`, or `patch` impacts. See
 [`docs/RELEASE.md`](docs/RELEASE.md) for the required notes sections,
 validation, packaging, and the bare-tag GitHub Actions flow.
 
