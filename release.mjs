@@ -32,10 +32,8 @@ const NONE_TYPES = new Set([
 ]);
 const CONVENTIONAL_HEADER_PATTERN =
   /^([a-z][a-z0-9-]*)(?:\([^\r\n()]+\))?(!)?:[ \t]+\S.*$/i;
-const BREAKING_FOOTER_PATTERN =
-  /^BREAKING(?:-| )CHANGE[ \t]*:[ \t]*\S.*$/i;
-const BREAKING_FOOTER_PREFIX_PATTERN =
-  /^BREAKING(?:-| )CHANGE[ \t]*:/i;
+const BREAKING_FOOTER_PATTERN = /^BREAKING(?:-| )CHANGE[ \t]*:[ \t]*\S.*$/i;
+const BREAKING_FOOTER_PREFIX_PATTERN = /^BREAKING(?:-| )CHANGE[ \t]*:/i;
 const NOTE_HEADINGS = new Set([
   "Summary",
   "User-visible changes",
@@ -47,6 +45,7 @@ const NOTE_HEADINGS = new Set([
   "Documentation",
 ]);
 const ASSET_NAMES = ["main.js", "manifest.json"];
+const RELEASE_FIELD_PATTERN = /^(?:Date|Impact|Rationale):/i;
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -64,7 +63,11 @@ function readOutput(command, args, rootDirectory = process.cwd()) {
 }
 
 function assertNonEmptyFile(path, label) {
-  if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size === 0) {
+  if (
+    !existsSync(path) ||
+    !statSync(path).isFile() ||
+    statSync(path).size === 0
+  ) {
     throw new Error(`${label} is missing or empty: ${path}`);
   }
 }
@@ -109,6 +112,9 @@ function classifySingleAdvisory(advisory) {
 
   const lines = text.split(/\r?\n/);
   const headerMatch = CONVENTIONAL_HEADER_PATTERN.exec(lines[0].trim());
+  const standaloneBreakingFooter =
+    lines.length === 1 && BREAKING_FOOTER_PATTERN.test(lines[0].trim());
+  if (standaloneBreakingFooter) return "major";
   if (!headerMatch) return "unknown";
 
   const footerLines = lines.slice(1).map((line) => line.trim());
@@ -150,8 +156,8 @@ export const classifyImpact = classifyAdvisory;
 
 export function impactToBump(impact) {
   return RELEASE_IMPACTS.includes(impact) &&
-      impact !== "none" &&
-      impact !== "unknown"
+    impact !== "none" &&
+    impact !== "unknown"
     ? impact
     : null;
 }
@@ -175,19 +181,15 @@ function assetNames(rootDirectory) {
 }
 
 function sectionBody(notes, heading) {
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const headingMatch = notes.match(
-    new RegExp(`^## ${escapedHeading}\\s*$`, "m"),
-  );
-  if (!headingMatch || headingMatch.index === undefined) return "";
-  const bodyStart = headingMatch.index + headingMatch[0].length;
-  const remainingNotes = notes.slice(bodyStart);
-  const nextHeadingOffset = remainingNotes.search(/^## [^\n]+\s*$/m);
-  const bodyEnd =
-    nextHeadingOffset === -1
-      ? notes.length
-      : bodyStart + nextHeadingOffset;
-  return notes.slice(bodyStart, bodyEnd).trim();
+  const { lines, headings } = notes;
+  const headingIndex = headings.findIndex((entry) => entry.name === heading);
+  if (headingIndex === -1) return "";
+  const currentHeading = headings[headingIndex];
+  const nextHeading = headings[headingIndex + 1];
+  return lines
+    .slice(currentHeading.lineIndex + 1, nextHeading?.lineIndex ?? lines.length)
+    .join("\n")
+    .trim();
 }
 
 function isGenericText(text) {
@@ -201,47 +203,123 @@ function isGenericText(text) {
 }
 
 function hasMeaningfulProse(text) {
-  const normalizedText = text
-    .replace(/^\s*[-*+]\s+/gm, "")
-    .replace(/^\s*\[[^\]]*\]\s*/gm, "")
-    .trim();
-  return (
-    normalizedText.length >= 3 &&
-    /[\p{L}\p{N}]/u.test(normalizedText) &&
-    !isGenericText(normalizedText)
-  );
+  return text.split(/\r?\n/).some((line) => {
+    const normalizedLine = line
+      .replace(/^\s*[-*+]\s+/, "")
+      .replace(/^\s*\[[^\]]*\]\s*/, "")
+      .trim();
+    return (
+      normalizedLine.length >= 3 &&
+      /[\p{L}\p{N}]/u.test(normalizedLine) &&
+      !isGenericText(normalizedLine)
+    );
+  });
 }
 
 function assertMeaningfulSection(notes, heading, notesPath) {
-  let body = sectionBody(notes, heading);
-  if (heading === "Summary") {
-    body = body
-      .split(/\r?\n/)
-      .filter((line) => !/^(?:Impact|Rationale):[ \t]*/.test(line))
-      .join("\n")
-      .trim();
-  }
+  const body = sectionBody(notes, heading)
+    .split(/\r?\n/)
+    .filter((line) => !RELEASE_FIELD_PATTERN.test(line.trim()))
+    .join("\n")
+    .trim();
   if (!hasMeaningfulProse(body)) {
-    throw new Error(`Release notes ${heading} section is missing or generic: ${notesPath}`);
+    throw new Error(
+      `Release notes ${heading} section is missing or generic: ${notesPath}`,
+    );
   }
   return body;
 }
 
+function parseHeading(line) {
+  const match = /^ {0,3}(#{1,6})(?:[ \t]+|$)(.*?)[ \t]*$/.exec(line);
+  if (!match) return null;
+  return { level: match[1].length, name: match[2].trim() };
+}
+
+function parseAuthoredNotes(notes, notesPath) {
+  const lines = notes.split(/\r?\n/);
+  const activeLines = [];
+  let fence = null;
+  for (const line of lines) {
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      const closesFence =
+        fenceMatch &&
+        fenceMatch[1][0] === fence.character &&
+        fenceMatch[1].length >= fence.length &&
+        !fenceMatch[2].trim();
+      if (closesFence) {
+        fence = null;
+      } else if (RELEASE_FIELD_PATTERN.test(line.trim())) {
+        throw new Error(
+          `Release notes contain a release field inside a code fence: ${notesPath}`,
+        );
+      }
+      continue;
+    }
+    if (fenceMatch) {
+      fence = {
+        character: fenceMatch[1][0],
+        length: fenceMatch[1].length,
+      };
+      continue;
+    }
+    activeLines.push(line);
+  }
+  if (fence) {
+    throw new Error(
+      `Release notes contain an unclosed code fence: ${notesPath}`,
+    );
+  }
+
+  const headings = [];
+  activeLines.forEach((line, lineIndex) => {
+    const heading = parseHeading(line);
+    if (!heading) return;
+    if (lineIndex === 0 && heading.level === 1) {
+      return;
+    }
+    if (heading.level !== 2) {
+      throw new Error(
+        `Release notes contain an unsupported heading: ${line.trim()}`,
+      );
+    }
+    if (!NOTE_HEADINGS.has(heading.name)) {
+      throw new Error(
+        `Release notes contain an unsupported section: ${heading.name}`,
+      );
+    }
+    headings.push({ ...heading, lineIndex });
+  });
+  return { lines: activeLines, headings };
+}
+
 function assertReleaseNotes(rootDirectory, version) {
-  const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
+  const notesPath = join(
+    rootDirectory,
+    RELEASE_NOTES_DIRECTORY,
+    `${version}.md`,
+  );
   assertNonEmptyFile(notesPath, "Release notes");
   const notes = readFileSync(notesPath, "utf8");
-  const noteLines = notes.split(/\r?\n/);
-  if (noteLines[0] !== `# Release ${version}`) {
-    throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
+  const rawNoteLines = notes.split(/\r?\n/);
+  if (rawNoteLines[0] !== `# Release ${version}`) {
+    throw new Error(
+      `Release notes heading must be # Release ${version}: ${notesPath}`,
+    );
   }
-  if (noteLines.some((line, index) => index > 0 && /^# /.test(line))) {
-    throw new Error(`Release notes contain an invalid top-level heading: ${notesPath}`);
+  const parsedNotes = parseAuthoredNotes(notes, notesPath);
+  const noteLines = parsedNotes.lines;
+  if (noteLines[0] !== `# Release ${version}`) {
+    throw new Error(
+      `Release notes heading must be # Release ${version}: ${notesPath}`,
+    );
   }
   const dateLines = noteLines.filter((line) => line.startsWith("Date:"));
-  const dateMatch = dateLines.length === 1
-    ? /^Date: (\d{4}-\d{2}-\d{2})$/.exec(dateLines[0])
-    : null;
+  const dateMatch =
+    dateLines.length === 1
+      ? /^Date: (\d{4}-\d{2}-\d{2})$/.exec(dateLines[0])
+      : null;
   const date = dateMatch ? new Date(`${dateMatch[1]}T00:00:00.000Z`) : null;
   if (
     !dateMatch ||
@@ -251,57 +329,73 @@ function assertReleaseNotes(rootDirectory, version) {
   ) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
-  const headings = [...notes.matchAll(/^## ([^\r\n]+)$/gm)];
-  const headingNames = headings.map(([, heading]) => heading);
-  for (const [, heading] of headings) {
-    if (!NOTE_HEADINGS.has(heading)) {
-      throw new Error(`Release notes contain an unsupported section: ${heading}`);
-    }
-  }
+  const headingNames = parsedNotes.headings.map(({ name }) => name);
   if (new Set(headingNames).size !== headingNames.length) {
     throw new Error(`Release notes contain duplicate sections: ${notesPath}`);
   }
   if (headingNames.filter((heading) => heading === "Summary").length !== 1) {
-    throw new Error(`Release notes Summary section is missing or duplicated: ${notesPath}`);
+    throw new Error(
+      `Release notes Summary section is missing or duplicated: ${notesPath}`,
+    );
   }
   if (
-    headingNames.filter((heading) => heading === "User-visible changes").length !== 1
+    headingNames.filter((heading) => heading === "User-visible changes")
+      .length !== 1
   ) {
-    throw new Error(`Release notes User-visible changes section is missing or duplicated: ${notesPath}`);
+    throw new Error(
+      `Release notes User-visible changes section is missing or duplicated: ${notesPath}`,
+    );
   }
-  assertMeaningfulSection(notes, "Summary", notesPath);
-  assertMeaningfulSection(notes, "User-visible changes", notesPath);
+  assertMeaningfulSection(parsedNotes, "Summary", notesPath);
+  assertMeaningfulSection(parsedNotes, "User-visible changes", notesPath);
   const impactLines = noteLines.filter((line) => line.startsWith("Impact:"));
-  const rationaleLines = noteLines.filter((line) => line.startsWith("Rationale:"));
-  const impactMatches = impactLines.length === 1
-    ? [...impactLines[0].matchAll(/^Impact: (major|minor|patch|none|unknown)$/g)]
-    : [];
-  const rationaleMatches = rationaleLines.length === 1
-    ? [...rationaleLines[0].matchAll(/^Rationale: (\S.*)$/g)]
-    : [];
+  const rationaleLines = noteLines.filter((line) =>
+    line.startsWith("Rationale:"),
+  );
+  const impactMatches =
+    impactLines.length === 1
+      ? [
+          ...impactLines[0].matchAll(
+            /^Impact: (major|minor|patch|none|unknown)$/g,
+          ),
+        ]
+      : [];
+  const rationaleMatches =
+    rationaleLines.length === 1
+      ? [...rationaleLines[0].matchAll(/^Rationale: (\S.*)$/g)]
+      : [];
   if (impactMatches.length !== 1) {
-    throw new Error(`Release notes Impact: field is missing or invalid: ${notesPath}`);
+    throw new Error(
+      `Release notes Impact: field is missing or invalid: ${notesPath}`,
+    );
   }
   if (
     rationaleMatches.length !== 1 ||
     !hasMeaningfulProse(rationaleMatches[0]?.[1] ?? "")
   ) {
-    throw new Error(`Release notes Rationale: field is missing or generic: ${notesPath}`);
+    throw new Error(
+      `Release notes Rationale: field is missing or generic: ${notesPath}`,
+    );
   }
   const noteImpact = impactMatches[0][1];
   if (noteImpact === "unknown" || noteImpact === "none") {
-    throw new Error(`Release notes Impact must identify a release impact: ${notesPath}`);
+    throw new Error(
+      `Release notes Impact must identify a release impact: ${notesPath}`,
+    );
   }
 
   if (impactToBump(noteImpact) === "major") {
-    assertMeaningfulSection(notes, "Breaking changes", notesPath);
-    assertMeaningfulSection(notes, "Migration", notesPath);
+    assertMeaningfulSection(parsedNotes, "Breaking changes", notesPath);
+    assertMeaningfulSection(parsedNotes, "Migration", notesPath);
   }
 
   return { notesPath, notes, impact: noteImpact };
 }
 
-export function validateRelease({ rootDirectory = process.cwd(), expectedVersion } = {}) {
+export function validateRelease({
+  rootDirectory = process.cwd(),
+  expectedVersion,
+} = {}) {
   const packageJson = readJson(join(rootDirectory, "package.json"));
   const manifest = readJson(join(rootDirectory, "manifest.json"));
   const packageVersion = packageJson.version;
@@ -314,12 +408,16 @@ export function validateRelease({ rootDirectory = process.cwd(), expectedVersion
   }
   assertBareSemver(manifest.version, "manifest.json version");
   if (manifest.version !== packageVersion) {
-    throw new Error(`manifest.json version (${manifest.version}) does not match package.json version (${packageVersion})`);
+    throw new Error(
+      `manifest.json version (${manifest.version}) does not match package.json version (${packageVersion})`,
+    );
   }
   if (expectedVersion !== undefined) {
     assertBareSemver(expectedVersion, "Expected release version");
     if (expectedVersion !== packageVersion) {
-      throw new Error(`package.json version (${packageVersion}) does not match release tag (${expectedVersion})`);
+      throw new Error(
+        `package.json version (${packageVersion}) does not match release tag (${expectedVersion})`,
+      );
     }
   }
   const versionsPath = join(rootDirectory, "versions.json");
@@ -330,11 +428,15 @@ export function validateRelease({ rootDirectory = process.cwd(), expectedVersion
     !manifest.minAppVersion.trim() ||
     versions[packageVersion] !== manifest.minAppVersion
   ) {
-    throw new Error(`versions.json entry for ${packageVersion} does not match manifest.json minAppVersion`);
+    throw new Error(
+      `versions.json entry for ${packageVersion} does not match manifest.json minAppVersion`,
+    );
   }
   const releaseAssets = assetNames(rootDirectory);
   const assetPaths = releaseAssets.map((asset) => join(rootDirectory, asset));
-  assetPaths.forEach((assetPath) => assertNonEmptyFile(assetPath, "Release asset"));
+  assetPaths.forEach((assetPath) =>
+    assertNonEmptyFile(assetPath, "Release asset"),
+  );
   return {
     version: packageVersion,
     manifestId: manifest.id,
@@ -355,7 +457,9 @@ function assertArchiveLayout(rootDirectory, archivePath, expectedEntries) {
     actualSet.length !== expectedEntries.length ||
     actualSet.some((entry, index) => entry !== expectedSet[index])
   ) {
-    throw new Error(`Release package must contain exactly ${expectedEntries.join(", ")}`);
+    throw new Error(
+      `Release package must contain exactly ${expectedEntries.join(", ")}`,
+    );
   }
   for (const entry of expectedEntries) {
     const archiveBytes = execFileSync("unzip", ["-p", archivePath, entry], {
@@ -369,18 +473,45 @@ function assertArchiveLayout(rootDirectory, archivePath, expectedEntries) {
   return actualEntries;
 }
 
-export function packageRelease({ rootDirectory = process.cwd(), expectedVersion, outputPath } = {}) {
+export function packageRelease({
+  rootDirectory = process.cwd(),
+  expectedVersion,
+  outputPath,
+} = {}) {
   const metadata = validateRelease({ rootDirectory, expectedVersion });
-  const archivePath = resolve(rootDirectory, outputPath ?? join("artifacts", `nutrition-day-export-${metadata.version}.zip`));
+  const archivePath = resolve(
+    rootDirectory,
+    outputPath ??
+      join("artifacts", `nutrition-day-export-${metadata.version}.zip`),
+  );
   mkdirSync(dirname(archivePath), { recursive: true });
   rmSync(archivePath, { force: true });
-  run("zip", ["-q", "-j", "-X", archivePath, ...metadata.assetNames], rootDirectory);
-  return { ...metadata, archivePath, archiveEntries: assertArchiveLayout(rootDirectory, archivePath, metadata.assetNames) };
+  run(
+    "zip",
+    ["-q", "-j", "-X", archivePath, ...metadata.assetNames],
+    rootDirectory,
+  );
+  return {
+    ...metadata,
+    archivePath,
+    archiveEntries: assertArchiveLayout(
+      rootDirectory,
+      archivePath,
+      metadata.assetNames,
+    ),
+  };
 }
 
 function assertCleanWorktree(rootDirectory) {
-  const status = readOutput("git", ["status", "--porcelain", "--untracked-files=all"], rootDirectory);
-  if (status) throw new Error(`Release preparation requires a clean worktree; pre-existing changes found:\n${status}`);
+  const status = readOutput(
+    "git",
+    ["status", "--porcelain", "--untracked-files=all"],
+    rootDirectory,
+  );
+  if (status)
+    throw new Error(
+      `Release preparation requires a clean worktree; pre-existing changes found:\n${status}`,
+    );
 }
 
 export function runRepositoryChecks(rootDirectory = process.cwd()) {
@@ -393,26 +524,55 @@ function updateMetadata(rootDirectory, version) {
   const packagePath = join(rootDirectory, "package.json");
   const manifestPath = join(rootDirectory, "manifest.json");
   const versionsPath = join(rootDirectory, "versions.json");
+  const metadataPaths = [packagePath, manifestPath, versionsPath];
+  const originalContents = new Map(
+    metadataPaths.map((path) => [path, readFileSync(path, "utf8")]),
+  );
   const packageJson = readJson(packagePath);
   const manifest = readJson(manifestPath);
   const versions = readJson(versionsPath);
   packageJson.version = version;
   manifest.version = version;
   versions[version] = manifest.minAppVersion;
-  writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  writeFileSync(versionsPath, `${JSON.stringify(versions, null, 2)}\n`);
+  const restore = () => {
+    for (const [path, contents] of originalContents) {
+      writeFileSync(path, contents);
+    }
+  };
+  try {
+    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    writeFileSync(versionsPath, `${JSON.stringify(versions, null, 2)}\n`);
+  } catch (error) {
+    restore();
+    throw error;
+  }
+  return restore;
 }
 
-export function prepareRelease({ rootDirectory = process.cwd(), impact, runChecks = runRepositoryChecks } = {}) {
-  if (typeof impact !== "string" || !["major", "minor", "patch"].includes(impact)) {
-    throw new Error("prepare requires an explicit --impact: major, minor, or patch");
+export function prepareRelease({
+  rootDirectory = process.cwd(),
+  impact,
+  runChecks = runRepositoryChecks,
+} = {}) {
+  if (
+    typeof impact !== "string" ||
+    !["major", "minor", "patch"].includes(impact)
+  ) {
+    throw new Error(
+      "prepare requires an explicit --impact: major, minor, or patch",
+    );
   }
   const currentVersion = readJson(join(rootDirectory, "package.json")).version;
   const nextVersion = calculateNextVersion(currentVersion, impact);
   assertCleanWorktree(rootDirectory);
-  runChecks(rootDirectory);
-  updateMetadata(rootDirectory, nextVersion);
+  const restoreMetadata = updateMetadata(rootDirectory, nextVersion);
+  try {
+    runChecks(rootDirectory);
+  } catch (error) {
+    restoreMetadata();
+    throw error;
+  }
   return { currentVersion, nextVersion, impact, bump: impactToBump(impact) };
 }
 
@@ -441,14 +601,20 @@ function runCli() {
   const { command, expectedVersion, outputPath, impact, advisory } =
     parseCliArguments(process.argv.slice(2));
   if (command === "classify") {
-    console.log(classifyAdvisory(advisory));
+    process.stdout.write(`${classifyAdvisory(advisory)}\n`);
   } else if (command === "prepare") {
     const result = prepareRelease({ impact });
-    console.log(`Release preparation complete: ${result.currentVersion} -> ${result.nextVersion}`);
+    process.stdout.write(
+      `Release preparation complete: ${result.currentVersion} -> ${result.nextVersion}`,
+    );
   } else if (command === "validate") {
-    console.log(`Release validation passed for ${validateRelease({ expectedVersion }).version}`);
+    process.stdout.write(
+      `Release validation passed for ${validateRelease({ expectedVersion }).version}`,
+    );
   } else if (command === "package") {
-    console.log(`Release package created -> ${packageRelease({ expectedVersion, outputPath }).archivePath}`);
+    process.stdout.write(
+      `Release package created -> ${packageRelease({ expectedVersion, outputPath }).archivePath}`,
+    );
   } else {
     throw new Error(`Unknown release command: ${command}`);
   }
