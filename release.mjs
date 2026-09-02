@@ -141,11 +141,23 @@ function advisoryText(advisory) {
     (value) => value !== null,
   );
   if (message !== null) {
-    if (headerFields.length > 0 || body !== null || footer !== null) return "";
+    if (
+      headerFields.length > 0 ||
+      scope !== null ||
+      body !== null ||
+      footer !== null
+    ) {
+      return "";
+    }
     return message;
   }
   if (header !== null) {
-    if (headerFields.length !== 1 || !header.trim() || /\r?\n/.test(header)) {
+    if (
+      headerFields.length !== 1 ||
+      scope !== null ||
+      !header.trim() ||
+      /\r?\n/.test(header)
+    ) {
       return "";
     }
   } else {

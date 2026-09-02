@@ -89,7 +89,12 @@ publish or stage files. Use `corepack pnpm run release:classify -- --input <advi
 (or the `--message`/`-m` aliases) to classify a release advisory without
 changing files. The classifier accepts normalized text messages, structured
 commit objects, and nested arrays; without explicit input it reads repository
-history. The canonical notes put `Date`, `Impact`, and `Rationale` inline before
+history. In structured input, `message` and `header` forms reject conflicting
+fields such as `scope` instead of silently ignoring them; the
+`type`/`scope`/`subject` form continues to support conventional scoped
+headers. An unknown item keeps the aggregate result at `unknown` even when
+other advisories are classified. The canonical notes put `Date`, `Impact`, and
+`Rationale` inline before
 `## Summary`. `none` and `unknown` remain classifier results, but validation,
 packaging, and the publish workflow reject them as non-publishable. See
 [`docs/RELEASE.md`](docs/RELEASE.md) for the required notes sections,

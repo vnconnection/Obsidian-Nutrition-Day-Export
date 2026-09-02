@@ -58,7 +58,10 @@ headers map `feat` to `minor`, `fix` and `perf` to `patch`, and
 header or a terminal non-empty `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer
 maps to `major`; a breaking footer must be separated from the header/body by a
 blank line. Empty or malformed inputs, non-terminal footers, and continued
-footer text are `unknown`. A mixed result containing `unknown` is `unknown` and
+footer text are `unknown`. For structured input, `message` and `header` are
+full-text forms: conflicting fields such as `scope` are `unknown` instead of
+being silently ignored. The `type`/`scope`/`subject` form preserves conventional
+scoped-header handling. A mixed result containing `unknown` is `unknown` and
 blocks version selection.
 
 `major` maps to `(X+1).0.0`, `minor` maps to `X.(Y+1).0`, and `patch` maps to

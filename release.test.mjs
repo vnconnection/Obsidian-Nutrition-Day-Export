@@ -218,6 +218,10 @@ describe("release impact classification", () => {
       "patch",
     );
     assert.equal(
+      classifyAdvisory({ message: "fix: x", scope: "invalid" }),
+      "unknown",
+    );
+    assert.equal(
       classifyAdvisory({ type: "feat", scope: "export", subject: "Add CSV" }),
       "minor",
     );
@@ -227,6 +231,10 @@ describe("release impact classification", () => {
         footer: "BREAKING-CHANGE: migrate callers",
       }),
       "major",
+    );
+    assert.equal(
+      classifyAdvisory({ header: "fix: x", scope: "invalid" }),
+      "unknown",
     );
     assert.equal(
       classifyAdvisory({ type: "feat", subject: "Add CSV", invalid: true }),
@@ -341,6 +349,14 @@ describe("release impact classification", () => {
     assert.equal(classifyAdvisory(["docs: notes", ""]), "unknown");
     assert.equal(
       classifyAdvisory(["fix: patch", "unclassified change"]),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory([
+        "fix: patch",
+        { message: "fix: x", scope: "invalid" },
+        "feat: capability",
+      ]),
       "unknown",
     );
     assert.equal(
