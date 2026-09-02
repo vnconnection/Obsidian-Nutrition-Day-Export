@@ -194,9 +194,6 @@ function classifySingleAdvisory(advisory) {
 
   const lines = text.split(/\r?\n/);
   const headerMatch = CONVENTIONAL_HEADER_PATTERN.exec(lines[0].trim());
-  const standaloneBreakingFooter =
-    lines.length === 1 && BREAKING_FOOTER_PATTERN.test(lines[0].trim());
-  if (standaloneBreakingFooter) return "major";
   if (!headerMatch) return "unknown";
 
   const footerLines = lines.slice(1).map((line) => line.trim());

@@ -96,7 +96,9 @@ headers. An unknown item keeps the aggregate result at `unknown` even when
 other advisories are classified. The canonical notes put `Date`, `Impact`, and
 `Rationale` inline before
 `## Summary`. `none` and `unknown` remain classifier results, but validation,
-packaging, and the publish workflow reject them as non-publishable. See
+packaging, and the publish workflow reject them as non-publishable. A breaking
+footer is major only when attached to a valid conventional header; a standalone
+`BREAKING CHANGE:` or `BREAKING-CHANGE:` message is `unknown`. See
 [`docs/RELEASE.md`](docs/RELEASE.md) for the required notes sections,
 validation, packaging, and the bare-tag GitHub Actions flow.
 

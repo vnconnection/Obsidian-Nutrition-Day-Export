@@ -167,8 +167,14 @@ describe("release impact classification", () => {
       }),
       "major",
     );
-    assert.equal(classifyAdvisory("BREAKING CHANGE: migrate callers"), "major");
-    assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate callers"), "major");
+    assert.equal(
+      classifyAdvisory("BREAKING CHANGE: migrate callers"),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory("BREAKING-CHANGE: migrate callers"),
+      "unknown",
+    );
     assert.equal(
       classifyAdvisory(
         "fix: change export format\nBREAKING CHANGE: migrate callers",
@@ -248,6 +254,18 @@ describe("release impact classification", () => {
       classifyAdvisory({ header: "fix: empty footer", footer: "" }),
       "unknown",
     );
+  });
+
+  it("requires a valid conventional header for breaking footers", () => {
+    for (const marker of ["BREAKING CHANGE:", "BREAKING-CHANGE:"]) {
+      assert.equal(classifyAdvisory(`${marker} migrate callers`), "unknown");
+      assert.equal(
+        classifyAdvisory(
+          `fix: change export format\n\n${marker} migrate callers`,
+        ),
+        "major",
+      );
+    }
   });
 
   it("accepts the agreed message input for release:classify", () => {
@@ -365,7 +383,7 @@ describe("release impact classification", () => {
     );
     assert.equal(
       classifyAdvisory("BREAKING-CHANGE: migrate release metadata"),
-      "major",
+      "unknown",
     );
     assert.equal(calculateNextVersion("0.2.0", "major"), "1.0.0");
     assert.equal(calculateNextVersion("0.2.0", "minor"), "0.3.0");

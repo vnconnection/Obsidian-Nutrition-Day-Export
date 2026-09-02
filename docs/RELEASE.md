@@ -54,11 +54,14 @@ The classifier returns the canonical impacts `major`, `minor`, `patch`, `none`,
 or `unknown`. It accepts one normalized text message, a structured commit
 object, or arrays (including nested arrays) of those inputs. Conventional
 headers map `feat` to `minor`, `fix` and `perf` to `patch`, and
-`docs`/`test`/`tests`/`chore`/`ci`/`build`/`refactor`/`style` to `none`. A `!`
-header or a terminal non-empty `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer
-maps to `major`; a breaking footer must be separated from the header/body by a
-blank line. Empty or malformed inputs, non-terminal footers, and continued
-footer text are `unknown`. For structured input, `message` and `header` are
+`docs`/`test`/`tests`/`chore`/`ci`/`build`/`refactor`/`style` to `none`. A valid
+conventional header with a `!` marker or a terminal non-empty
+`BREAKING CHANGE:`/`BREAKING-CHANGE:` footer maps to `major`; a breaking footer
+must be separated from the header/body by a blank line. A standalone
+breaking-footer message without a conventional header is `unknown`. Empty or
+malformed inputs,
+non-terminal footers, and continued footer text are also `unknown`. For
+structured input, `message` and `header` are
 full-text forms: conflicting fields such as `scope` are `unknown` instead of
 being silently ignored. The `type`/`scope`/`subject` form preserves conventional
 scoped-header handling. A mixed result containing `unknown` is `unknown` and
