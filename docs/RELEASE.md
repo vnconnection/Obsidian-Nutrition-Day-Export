@@ -68,8 +68,12 @@ or tag, creates or edits a GitHub Release, or uploads assets. `none` and
 To inspect an advisory without changing files:
 
 ```bash
-corepack pnpm run release:classify -- $'feat: change export format\n\nBREAKING-CHANGE: migrate callers'
+corepack pnpm run release:classify -- --input $'feat: change export format\n\nBREAKING-CHANGE: migrate callers'
 ```
+
+The same classifier input can be passed explicitly with `--input` (or its
+`--message`/`-m` aliases); these options take the advisory text as their next
+argument and never read or modify repository files.
 
 The safe aliases `release:patch`, `release:minor`, and `release:major` invoke
 the same explicit local preparation with `patch`, `minor`, and `major` impact.

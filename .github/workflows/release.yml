@@ -101,7 +101,7 @@ jobs:
             echo "Remote tag $RELEASE_TAG does not point to $checked_out_sha: $remote_tag_sha" >&2
             exit 1
           fi
-          release_json="$(gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,body,assets)"
+          release_json="$(gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,publishedAt,body,assets)"
           expected_assets=(main.js manifest.json "nutrition-day-export-$RELEASE_TAG.zip")
           if [[ -f styles.css ]]; then
             expected_assets+=(styles.css)
@@ -130,6 +130,7 @@ jobs:
             .tagName == $tag and
             .isDraft == false and
             .isPrerelease == false and
+            (.publishedAt | type == "string" and length > 0) and
             .body == $body and
             ([.assets[].name] | sort) == ($expected | sort) and
             ([.assets[] | select((.size | type != "number") or .size <= 0 or (.digest | type != "string") or (.digest | startswith("sha256:") | not))] | length) == 0

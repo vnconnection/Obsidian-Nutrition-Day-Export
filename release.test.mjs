@@ -162,6 +162,20 @@ describe("release impact classification", () => {
       ),
       "major",
     );
+    assert.equal(
+      classifyAdvisory(
+        "fix: change export format\nBREAKING CHANGE: migrate callers\ndocs: follow-up",
+      ),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory("fix: change export format\nBREAKING CHANGE:"),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory("fix: change export format\nBREAKING CHANGE : migrate callers"),
+      "unknown",
+    );
   });
 
   it("accepts the agreed message input for release:classify", () => {
@@ -176,6 +190,18 @@ describe("release impact classification", () => {
       { cwd: process.cwd(), encoding: "utf8" },
     );
     assert.equal(output, "major\n");
+
+    const inputOutput = execFileSync(
+      process.execPath,
+      [
+        "release.mjs",
+        "classify",
+        "--input",
+        "fix: change export format\n\nBREAKING-CHANGE: migrate callers",
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
+    );
+    assert.equal(inputOutput, "major\n");
   });
 
   it("uses major, minor, then patch precedence for mixed advisories", () => {
@@ -480,6 +506,8 @@ describe("release assets and side-effect boundaries", () => {
     );
     assert.match(workflow, /\.isDraft == false/);
     assert.match(workflow, /\.isPrerelease == false/);
+    assert.match(workflow, /publishedAt/);
+    assert.match(workflow, /\.publishedAt \| type == "string" and length > 0/);
     assert.match(
       workflow,
       /gh release edit .*--draft=false --prerelease=false/,

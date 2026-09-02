@@ -32,8 +32,8 @@ const NONE_TYPES = new Set([
 ]);
 const CONVENTIONAL_HEADER_PATTERN =
   /^([a-z][a-z0-9-]*)(?:\([^\r\n()]+\))?(!)?:[ \t]+\S.*$/i;
-const BREAKING_FOOTER_PATTERN = /^BREAKING(?:-| )CHANGE[ \t]*:[ \t]*\S.*$/i;
-const BREAKING_FOOTER_PREFIX_PATTERN = /^BREAKING(?:-| )CHANGE[ \t]*:/i;
+const BREAKING_FOOTER_PATTERN = /^BREAKING(?:-| )CHANGE:[ \t]*\S.*$/i;
+const BREAKING_FOOTER_PREFIX_PATTERN = /^BREAKING(?:-| )CHANGE\b/i;
 const NOTE_HEADINGS = new Set([
   "Summary",
   "User-visible changes",
@@ -113,18 +113,26 @@ function classifySingleAdvisory(advisory) {
   if (!headerMatch) return "unknown";
 
   const footerLines = lines.slice(1).map((line) => line.trim());
+  const breakingFooterIndexes = footerLines.flatMap((line, index) =>
+    BREAKING_FOOTER_PATTERN.test(line) ||
+    BREAKING_FOOTER_PREFIX_PATTERN.test(line)
+      ? [index]
+      : [],
+  );
   if (
     footerLines.some(
       (line) =>
         BREAKING_FOOTER_PREFIX_PATTERN.test(line) &&
         !BREAKING_FOOTER_PATTERN.test(line),
+    ) ||
+    breakingFooterIndexes.some(
+      (index) =>
+        index !== footerLines.findLastIndex((line) => line.length > 0),
     )
   ) {
     return "unknown";
   }
-  const hasBreakingFooter = footerLines.some((line) =>
-    BREAKING_FOOTER_PATTERN.test(line),
-  );
+  const hasBreakingFooter = breakingFooterIndexes.length > 0;
   if (headerMatch[2] === "!" || hasBreakingFooter) return "major";
 
   const type = headerMatch[1].toLowerCase();
@@ -713,17 +721,26 @@ function parseCliArguments(argumentsList) {
   }
   let message;
   const messageIndex = cliArguments.findIndex(
-    (argument) => argument === "--message" || argument === "-m",
+    (argument) =>
+      argument === "--message" ||
+      argument === "-m" ||
+      argument === "--input",
   );
   if (messageIndex !== -1) {
     message = cliArguments[messageIndex + 1] ?? "";
     cliArguments.splice(messageIndex, 2);
   } else {
-    const inlineMessageIndex = cliArguments.findIndex((argument) =>
-      argument.startsWith("--message="),
+    const inlineMessageIndex = cliArguments.findIndex(
+      (argument) =>
+        argument.startsWith("--message=") ||
+        argument.startsWith("--input="),
     );
     if (inlineMessageIndex !== -1) {
-      message = cliArguments[inlineMessageIndex].slice("--message=".length);
+      const argument = cliArguments[inlineMessageIndex];
+      const prefix = argument.startsWith("--input=")
+        ? "--input="
+        : "--message=";
+      message = argument.slice(prefix.length);
       cliArguments.splice(inlineMessageIndex, 1);
     }
   }
