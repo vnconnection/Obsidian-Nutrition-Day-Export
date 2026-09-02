@@ -27,16 +27,45 @@ export const RELEASE_IMPACTS = [
   "build",
   "refactor",
   "style",
+  "major",
+  "minor",
+  "patch",
+  "none",
   "unknown",
 ];
 
-const PATCH_IMPACTS = new Set(RELEASE_IMPACTS.slice(2, -1));
+const PATCH_IMPACTS = new Set([
+  "fix",
+  "perf",
+  "docs",
+  "test",
+  "chore",
+  "ci",
+  "build",
+  "refactor",
+  "style",
+  "patch",
+]);
+const CLASSIFIER_ORDER = [
+  "breaking",
+  "major",
+  "feat",
+  "minor",
+  ...PATCH_IMPACTS,
+  "none",
+];
+const CLASSIFIER_RANK = new Map(
+  CLASSIFIER_ORDER.map((impact, index) => [impact, index]),
+);
 const NOTE_HEADINGS = new Set([
   "Summary",
+  "Impact",
+  "Rationale",
   "Added",
   "Changed",
   "Fixed",
   "Breaking changes",
+  "Migration",
   "Documentation",
 ]);
 const ASSET_NAMES = ["main.js", "manifest.json"];
@@ -82,6 +111,8 @@ function advisoryText(advisory) {
       advisory.subject,
       advisory.message,
       advisory.body,
+      advisory.footer,
+      advisory.description,
     ]
       .filter((value) => typeof value === "string")
       .join("\n");
@@ -89,30 +120,61 @@ function advisoryText(advisory) {
   return "";
 }
 
-export function classifyAdvisory(advisory) {
-  const text = advisoryText(advisory).toLowerCase();
-  if (/breaking(?:\s+change)?/.test(text) || /(?:^|[\s(:])\w+!/.test(text)) {
+function classifySingleAdvisory(advisory) {
+  const text = advisoryText(advisory).trim();
+  const normalizedText = text.toLowerCase();
+  if (!normalizedText) return "unknown";
+
+  if (
+    normalizedText === "breaking" ||
+    /(?:^|[\r\n])\s*breaking(?:[- ]change)?\s*:/im.test(text) ||
+    /\bbreaking[- ]change\b/i.test(text) ||
+    /(?:^|[\r\n])\s*[a-z][\w-]*(?:\([^\r\n)]*\))?!\s*(?::|$)/im.test(text)
+  ) {
     return "breaking";
   }
-  if (/(?:^|[\s(:])feat(?:\([^)]*\))?(?:\s|:|$)/.test(text)) {
-    return "feat";
+
+  const matchesConventionalType = (impact) =>
+    new RegExp(
+      `(?:^|[\\s(:])${impact}(?:\\([^)]*\\))?(?=\\s*(?::|!|$|\\r?\\n))`,
+      "i",
+    ).test(text);
+
+  if (matchesConventionalType("feat") || normalizedText === "minor") {
+    return normalizedText === "minor" ? "minor" : "feat";
   }
+
   for (const impact of PATCH_IMPACTS) {
-    if (new RegExp(`(?:^|[\\s(:])${impact}(?:\\([^)]*\\))?(?:\\s|:|$)`).test(text)) {
+    if (matchesConventionalType(impact) || normalizedText === impact) {
       return impact;
     }
   }
-  if (RELEASE_IMPACTS.includes(text.trim())) {
-    return text.trim();
+
+  if (normalizedText === "major" || normalizedText === "none") {
+    return normalizedText;
   }
+
   return "unknown";
+}
+
+export function classifyAdvisory(advisory) {
+  if (!Array.isArray(advisory)) return classifySingleAdvisory(advisory);
+  if (advisory.length === 0) return "unknown";
+
+  const classifications = advisory.map(classifyAdvisory);
+  if (classifications.includes("unknown")) return "unknown";
+  return classifications.reduce((highest, current) =>
+    CLASSIFIER_RANK.get(current) < CLASSIFIER_RANK.get(highest)
+      ? current
+      : highest,
+  );
 }
 
 export const classifyImpact = classifyAdvisory;
 
 export function impactToBump(impact) {
-  if (impact === "breaking") return "major";
-  if (impact === "feat") return "minor";
+  if (impact === "breaking" || impact === "major") return "major";
+  if (impact === "feat" || impact === "minor") return "minor";
   if (PATCH_IMPACTS.has(impact)) return "patch";
   return null;
 }
@@ -135,6 +197,40 @@ function assetNames(rootDirectory) {
   return assets;
 }
 
+function sectionBody(notes, heading) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const headingMatch = notes.match(
+    new RegExp(`^## ${escapedHeading}\\s*$`, "m"),
+  );
+  if (!headingMatch || headingMatch.index === undefined) return "";
+  const bodyStart = headingMatch.index + headingMatch[0].length;
+  const remainingNotes = notes.slice(bodyStart);
+  const nextHeadingOffset = remainingNotes.search(/^## [^\n]+\s*$/m);
+  const bodyEnd =
+    nextHeadingOffset === -1
+      ? notes.length
+      : bodyStart + nextHeadingOffset;
+  return notes.slice(bodyStart, bodyEnd).trim();
+}
+
+function isGenericText(text) {
+  const normalizedText = text
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\[[^\]]*\]\s*/gm, "")
+    .trim();
+  return /^(?:update|todo|tbd|n\/a|user-visible .+|required only when applicable)\.?$/i.test(
+    normalizedText,
+  );
+}
+
+function assertMeaningfulSection(notes, heading, notesPath) {
+  const body = sectionBody(notes, heading);
+  if (!body || isGenericText(body)) {
+    throw new Error(`Release notes ${heading} section is missing or generic: ${notesPath}`);
+  }
+  return body;
+}
+
 function assertReleaseNotes(rootDirectory, version) {
   const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
   assertNonEmptyFile(notesPath, "Release notes");
@@ -154,21 +250,37 @@ function assertReleaseNotes(rootDirectory, version) {
       throw new Error(`Release notes contain an unsupported section: ${heading}`);
     }
   }
-  const summary = notes.match(/^## Summary\s*\n([\s\S]*?)(?=^## |$)/m)?.[1].trim();
-  if (!summary || /^(update|todo|tbd|n\/a)\.?$/i.test(summary)) {
-    throw new Error(`Release notes summary is missing or generic: ${notesPath}`);
+  assertMeaningfulSection(notes, "Summary", notesPath);
+  const impactSection = assertMeaningfulSection(notes, "Impact", notesPath);
+  assertMeaningfulSection(notes, "Rationale", notesPath);
+  const noteImpact = classifyAdvisory(impactSection);
+  if (noteImpact === "unknown" || noteImpact === "none") {
+    throw new Error(`Release notes Impact must identify a release impact: ${notesPath}`);
   }
-  const concreteChange = headings.some(([, heading], index) => {
-    if (heading.trim() === "Summary") return false;
-    const start = headings[index].index;
-    const end = headings[index + 1]?.index ?? notes.length;
-    const section = notes.slice(start, end);
-    return /^\s*[-*]\s+(?!update\.?$|todo\.?$|tbd\.?$|user-visible .+\.?$)\S.{8,}$/im.test(section);
+
+  const concreteHeadings = new Set([
+    "Added",
+    "Changed",
+    "Fixed",
+    "Breaking changes",
+    "Documentation",
+  ]);
+  const concreteChange = headings.some(([, heading]) => {
+    const normalizedHeading = heading.trim();
+    if (!concreteHeadings.has(normalizedHeading)) return false;
+    const body = sectionBody(notes, normalizedHeading);
+    return body.length >= 9 && !isGenericText(body);
   });
   if (!concreteChange) {
     throw new Error(`Release notes must contain a concrete user-visible change: ${notesPath}`);
   }
-  return { notesPath, notes };
+
+  if (impactToBump(noteImpact) === "major") {
+    assertMeaningfulSection(notes, "Breaking changes", notesPath);
+    assertMeaningfulSection(notes, "Migration", notesPath);
+  }
+
+  return { notesPath, notes, impact: noteImpact };
 }
 
 export function validateRelease({ rootDirectory = process.cwd(), expectedVersion } = {}) {
@@ -255,8 +367,15 @@ function updateMetadata(rootDirectory, version) {
 }
 
 export function prepareRelease({ rootDirectory = process.cwd(), impact, runChecks = runRepositoryChecks } = {}) {
-  if (typeof impact !== "string" || !RELEASE_IMPACTS.includes(impact) || impact === "unknown") {
-    throw new Error("prepare requires an explicit --impact: breaking, feat, fix, perf, docs, test, chore, ci, build, refactor, or style");
+  if (
+    typeof impact !== "string" ||
+    !RELEASE_IMPACTS.includes(impact) ||
+    impact === "unknown" ||
+    impact === "none"
+  ) {
+    throw new Error(
+      "prepare requires an explicit --impact: major, minor, patch, breaking, feat, fix, perf, docs, test, chore, ci, build, refactor, or style",
+    );
   }
   const currentVersion = readJson(join(rootDirectory, "package.json")).version;
   const nextVersion = calculateNextVersion(currentVersion, impact);
@@ -268,25 +387,39 @@ export function prepareRelease({ rootDirectory = process.cwd(), impact, runCheck
 
 function parseCliArguments(argumentsList) {
   const cliArguments = argumentsList.filter((argument) => argument !== "--");
-  const command = ["prepare", "validate", "package"].includes(cliArguments[0]) ? cliArguments.shift() : "package";
+  const knownCommands = ["classify", "prepare", "validate", "package"];
+  const command = knownCommands.includes(cliArguments[0])
+    ? cliArguments.shift()
+    : "package";
   let impact;
   const impactIndex = cliArguments.indexOf("--impact");
   if (impactIndex !== -1) {
     impact = cliArguments[impactIndex + 1];
     cliArguments.splice(impactIndex, 2);
   }
-  return { command, expectedVersion: cliArguments[0], outputPath: cliArguments[1], impact };
+  return {
+    command,
+    expectedVersion: cliArguments[0],
+    outputPath: cliArguments[1],
+    impact,
+    advisory: cliArguments.join(" "),
+  };
 }
 
 function runCli() {
-  const { command, expectedVersion, outputPath, impact } = parseCliArguments(process.argv.slice(2));
-  if (command === "prepare") {
+  const { command, expectedVersion, outputPath, impact, advisory } =
+    parseCliArguments(process.argv.slice(2));
+  if (command === "classify") {
+    console.log(classifyAdvisory(advisory));
+  } else if (command === "prepare") {
     const result = prepareRelease({ impact });
     console.log(`Release preparation complete: ${result.currentVersion} -> ${result.nextVersion}`);
   } else if (command === "validate") {
     console.log(`Release validation passed for ${validateRelease({ expectedVersion }).version}`);
   } else if (command === "package") {
     console.log(`Release package created -> ${packageRelease({ expectedVersion, outputPath }).archivePath}`);
+  } else {
+    throw new Error(`Unknown release command: ${command}`);
   }
 }
 

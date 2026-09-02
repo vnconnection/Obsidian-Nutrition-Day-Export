@@ -19,15 +19,25 @@ Date: YYYY-MM-DD
 
 Short, user-visible summary.
 
+## Impact
+
+patch
+
+## Rationale
+
+Why this impact classification is correct for existing users.
+
 ## Fixed
 
 - Concrete user-visible change.
 ```
 
-Only `Summary`, `Added`, `Changed`, `Fixed`, `Breaking changes`, and
-`Documentation` headings are valid. Generic summaries and notes without a
-concrete user-visible change fail validation. The GitHub Release body is taken
-from this notes file, not generated automatically.
+Only `Summary`, `Impact`, `Rationale`, `Added`, `Changed`, `Fixed`, `Breaking
+changes`, `Migration`, and `Documentation` headings are valid. `Summary`,
+`Impact`, and `Rationale` must contain meaningful content, and the notes must
+contain a concrete user-visible change. For `major`/`breaking` impact, include
+both `Breaking changes` and `Migration` sections with meaningful content. The
+GitHub Release body is taken from this notes file, not generated automatically.
 
 ## Local preparation
 
@@ -39,12 +49,27 @@ corepack pnpm run release:prepare -- --impact feat
 corepack pnpm run release:prepare -- --impact breaking
 ```
 
-`breaking` increments major, `feat` increments minor, and `fix`, `perf`,
-`docs`, `test`, `chore`, `ci`, `build`, `refactor`, and `style` increment patch.
-Preparation runs typecheck, tests, lint, and the production build, then updates
-package and plugin metadata. It never creates a commit or tag, pushes a branch
-or tag, creates or edits a GitHub Release, or uploads assets. `unknown` is
-intentionally rejected rather than guessed.
+The classifier returns `breaking`, `feat`, `fix`, `perf`, `docs`, `test`,
+`chore`, `ci`, `build`, `refactor`, `style`, `major`, `minor`, `patch`, `none`,
+or `unknown`. A mixed result containing `unknown` is `unknown` and blocks
+version selection. `BREAKING-CHANGE` footers and conventional-commit `!`
+headers classify as `breaking`.
+
+`major`/`breaking` maps to `(X+1).0.0`, `minor`/`feat` maps to `X.(Y+1).0`,
+and patch impacts map to `X.Y.(Z+1)`, including when `X` is `0`. Preparation
+runs the pnpm typecheck, tests, lint, and production build, then updates
+package and plugin metadata. It never stages, commits, tags, pushes a branch
+or tag, creates or edits a GitHub Release, or uploads assets. `unknown` and
+`none` are intentionally rejected rather than guessed.
+
+To inspect an advisory without changing files:
+
+```bash
+corepack pnpm run release:classify -- "BREAKING-CHANGE: migrate metadata"
+```
+
+The safe aliases `release:patch`, `release:minor`, and `release:major` invoke
+the same explicit local preparation with `patch`, `minor`, and `major` impact.
 
 Author the matching notes before validation:
 
@@ -60,13 +85,15 @@ archive root. Neither command publishes anything.
 
 ## GitHub Actions
 
-`.github/workflows/release.yml` runs only for bare semver tags. It installs
-dependencies with `pnpm install --frozen-lockfile`, runs typecheck, tests, lint,
+`.github/workflows/release.yml` runs only for bare semver tags. Its glob admits
+both `0.x.y` and non-zero major versions; the shell semver check enforces the
+exact `X.Y.Z` form. It installs dependencies with `pnpm install --frozen-lockfile`, runs typecheck, tests, lint,
 the production build, and release tests, then validates metadata/assets and
 packages the root-layout ZIP. The workflow creates or updates the GitHub
 Release with the authored notes and uploads `main.js`, `manifest.json`, the
 optional `styles.css`, and the ZIP. A final API read verifies the tag, exact
-authored body, and non-empty required assets.
+authored body, exact asset set (including absence of stale extras), and
+non-empty assets.
 
 Do not push or create a tag as part of local preparation. Publish only after
 reviewing the prepared metadata, authored notes, generated `main.js`, and the

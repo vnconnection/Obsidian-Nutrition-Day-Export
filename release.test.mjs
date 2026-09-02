@@ -35,9 +35,42 @@ Date: 2026-09-02
 
 Exports now validate release metadata before packaging.
 
+## Impact
+
+patch
+
+## Rationale
+
+The release gate must reject incomplete plugin packages before publication.
+
 ## Fixed
 
 - Rejects mismatched plugin metadata before a release is published.
+`;
+
+const majorNotes = (version) => `# Release ${version}
+
+Date: 2026-09-02
+
+## Summary
+
+The export contract now requires the new metadata format.
+
+## Impact
+
+major
+
+## Rationale
+
+Existing release metadata is no longer sufficient for this contract.
+
+## Breaking changes
+
+- Release preparation now requires an explicit impact classification.
+
+## Migration
+
+- Add the required impact and rationale sections to release notes.
 `;
 
 function createFixture({ version = "0.2.0", notes = validNotes(version), styles = false } = {}) {
@@ -79,9 +112,14 @@ describe("release impact classification", () => {
     assert.equal(classifyAdvisory(["fix: patch", "feat: capability", "breaking change: migration"]), "breaking");
     assert.equal(classifyAdvisory(["fix: patch", "feat: capability"]), "feat");
     assert.equal(classifyAdvisory(["fix: patch", "docs: notes"]), "fix");
+    assert.equal(classifyAdvisory(["fix: patch", "unclassified change"]), "unknown");
+    assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate release metadata"), "breaking");
     assert.equal(calculateNextVersion("0.2.0", "breaking"), "1.0.0");
     assert.equal(calculateNextVersion("0.2.0", "feat"), "0.3.0");
     assert.equal(calculateNextVersion("0.2.0", "fix"), "0.2.1");
+    assert.equal(calculateNextVersion("0.2.0", "major"), "1.0.0");
+    assert.equal(calculateNextVersion("0.2.0", "minor"), "0.3.0");
+    assert.equal(calculateNextVersion("0.2.0", "patch"), "0.2.1");
   });
 
   it("keeps unknown impact blocking instead of guessing a bump", () => {
@@ -118,6 +156,28 @@ describe("release notes and metadata validation", () => {
     const missingNotesRoot = createFixture();
     rmSync(join(missingNotesRoot, "docs", "releases", "0.2.0.md"));
     assert.throws(() => validateRelease({ rootDirectory: missingNotesRoot }), /Release notes/);
+  });
+
+  it("requires impact and rationale sections", () => {
+    const rootDirectory = createFixture({
+      notes: "# Release 0.2.0\n\nDate: 2026-09-02\n\n## Summary\n\nA real summary.\n\n## Fixed\n\n- A concrete correction for users.\n",
+    });
+    assert.throws(() => validateRelease({ rootDirectory }), /Impact section/);
+
+    const rationaleRoot = createFixture({
+      notes: validNotes("0.2.0").replace("## Rationale\n\nThe release gate must reject incomplete plugin packages before publication.\n", ""),
+    });
+    assert.throws(() => validateRelease({ rootDirectory: rationaleRoot }), /Rationale section/);
+  });
+
+  it("requires breaking changes and migration sections for major impact", () => {
+    const rootDirectory = createFixture({ notes: majorNotes("0.2.0") });
+    assert.equal(validateRelease({ rootDirectory }).impact, "major");
+
+    const missingMigration = createFixture({
+      notes: majorNotes("0.2.0").replace(/\n## Migration[\s\S]*/, "\n"),
+    });
+    assert.throws(() => validateRelease({ rootDirectory: missingMigration }), /Migration section/);
   });
 
   it("requires matching package, manifest, version map, and tag metadata", () => {
@@ -185,6 +245,24 @@ describe("release assets and side-effect boundaries", () => {
     let checksRun = false;
     assert.throws(
       () => prepareRelease({ rootDirectory, impact: "fix", runChecks: () => { checksRun = true; } }),
+      /clean worktree/,
+    );
+    assert.equal(checksRun, false);
+    assert.equal(JSON.parse(readFileSync(join(rootDirectory, "package.json"), "utf8")).version, "0.2.0");
+  });
+
+  it("refuses preparation from a staged dirty worktree before running checks", () => {
+    const rootDirectory = createFixture();
+    runGit(rootDirectory, ["init", "-q", "-b", "main"]);
+    runGit(rootDirectory, ["config", "user.name", "Release Test"]);
+    runGit(rootDirectory, ["config", "user.email", "release-test@example.invalid"]);
+    runGit(rootDirectory, ["add", "."]);
+    runGit(rootDirectory, ["commit", "-qm", "fixture"]);
+    writeFileSync(join(rootDirectory, "staged.txt"), "keep me staged\n");
+    runGit(rootDirectory, ["add", "staged.txt"]);
+    let checksRun = false;
+    assert.throws(
+      () => prepareRelease({ rootDirectory, impact: "patch", runChecks: () => { checksRun = true; } }),
       /clean worktree/,
     );
     assert.equal(checksRun, false);

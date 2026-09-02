@@ -20,7 +20,11 @@
     "preversion": "tsc --noEmit && vitest --run && eslint src test-setup.ts vitest.config.ts --ext .ts --ignore-pattern 'src/**/*.test.ts' && node esbuild.config.mjs production",
     "version": "node version-bump.mjs",
     "release": "node release.mjs package",
+    "release:classify": "node release.mjs classify",
     "release:prepare": "node release.mjs prepare",
+    "release:patch": "node release.mjs prepare --impact patch",
+    "release:minor": "node release.mjs prepare --impact minor",
+    "release:major": "node release.mjs prepare --impact major",
     "release:validate": "node release.mjs validate",
     "release:package": "node release.mjs package"
   },

@@ -76,12 +76,19 @@ from a clean worktree with an explicit impact:
 corepack pnpm run release:prepare -- --impact fix
 corepack pnpm run release:prepare -- --impact feat
 corepack pnpm run release:prepare -- --impact breaking
+
+# Safe aliases for the same explicit local preparation
+corepack pnpm run release:patch
+corepack pnpm run release:minor
+corepack pnpm run release:major
 ```
 
 Preparation runs the repository checks and updates `package.json`,
 `manifest.json`, and `versions.json` locally. It does not commit, tag, push, or
-publish. See [`docs/RELEASE.md`](docs/RELEASE.md) for validation, packaging, and
-the bare-tag GitHub Actions flow.
+publish or stage files. Use `corepack pnpm run release:classify -- <advisory>`
+to classify a release advisory without changing files. See
+[`docs/RELEASE.md`](docs/RELEASE.md) for the required notes sections,
+validation, packaging, and the bare-tag GitHub Actions flow.
 
 ## Testing
 

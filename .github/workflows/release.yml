@@ -3,7 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+      - "0.[0-9]*.[0-9]*"
+      - "[1-9]*.[0-9]*.[0-9]*"
 
 permissions:
   contents: write
@@ -85,5 +86,6 @@ jobs:
           jq -e --arg tag "$RELEASE_TAG" --arg body "$notes" --argjson expected "$expected_json" '
             .tagName == $tag and
             .body == $body and
-            ([$expected[] as $name | .assets[] | select(.name == $name and .size > 0)] | length) == ($expected | length)
+            ([.assets[].name] | sort) == ($expected | sort) and
+            ([.assets[] | select(.size <= 0)] | length) == 0
           ' <<<"$release_json" >/dev/null
