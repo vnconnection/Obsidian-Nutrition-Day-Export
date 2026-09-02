@@ -29,11 +29,13 @@ Rationale: Why this impact classification is correct for existing users.
 ```
 
 Only `Summary`, `User-visible changes`, `Added`, `Changed`, `Fixed`, `Breaking
-changes`, `Migration`, and `Documentation` headings are valid. `Summary`,
-`Impact:` and `Rationale:` fields must contain meaningful content, and the notes must
-contain a concrete user-visible change. For `major`/`breaking` impact, include
-both `Breaking changes` and `Migration` sections with meaningful content. The
-GitHub Release body is taken from this notes file, not generated automatically.
+changes`, `Migration`, and `Documentation` headings are valid, with exactly one
+`Summary` and one `User-visible changes` heading. The fields must use the exact
+forms `Impact: major|minor|patch`, `Rationale: <prose>`, and contain meaningful
+content; `none` and `unknown` are rejected for a publishable release. The notes
+must contain a concrete user-visible change. For `major` impact, include both
+`Breaking changes` and `Migration` sections with meaningful content. The GitHub
+Release body is taken from this notes file, not generated automatically.
 
 ## Local preparation
 
@@ -77,7 +79,9 @@ corepack pnpm run release:package -- <X.Y.Z> artifacts/nutrition-day-export-<X.Y
 `release:validate` is read-only and checks notes, metadata, and non-empty root
 assets. `release:package` only creates a local ZIP; it contains exactly
 `main.js`, `manifest.json`, and `styles.css` when present, directly at the
-archive root. Neither command publishes anything.
+archive root. Neither command publishes anything. The workflow additionally
+checks the remote tag target, release status, exact asset set, non-zero sizes,
+and SHA-256 digests for every published asset.
 
 ## GitHub Actions
 
@@ -88,8 +92,8 @@ the production build, and release tests, then validates metadata/assets and
 packages the root-layout ZIP. The workflow creates or updates the GitHub
 Release with the authored notes and uploads `main.js`, `manifest.json`, the
 optional `styles.css`, and the ZIP. A final API read verifies the tag, exact
-authored body, exact asset set (including absence of stale extras), and
-non-empty assets.
+authored body, exact asset set (including absence of stale extras), non-empty
+assets, and SHA-256 digests.
 
 Do not push or create a tag as part of local preparation. Publish only after
 reviewing the prepared metadata, authored notes, generated `main.js`, and the

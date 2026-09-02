@@ -32,6 +32,10 @@ const NONE_TYPES = new Set([
 ]);
 const CONVENTIONAL_HEADER_PATTERN =
   /^([a-z][a-z0-9-]*)(?:\([^\r\n()]+\))?(!)?:[ \t]+\S.*$/i;
+const BREAKING_FOOTER_PATTERN =
+  /^BREAKING(?:-| )CHANGE[ \t]*:[ \t]*\S.*$/i;
+const BREAKING_FOOTER_PREFIX_PATTERN =
+  /^BREAKING(?:-| )CHANGE[ \t]*:/i;
 const NOTE_HEADINGS = new Set([
   "Summary",
   "User-visible changes",
@@ -107,8 +111,18 @@ function classifySingleAdvisory(advisory) {
   const headerMatch = CONVENTIONAL_HEADER_PATTERN.exec(lines[0].trim());
   if (!headerMatch) return "unknown";
 
-  const hasBreakingFooter = lines.slice(1).some((line) =>
-    /^BREAKING[- ]CHANGE[ \t]*:[ \t]*\S.*$/i.test(line.trim()),
+  const footerLines = lines.slice(1).map((line) => line.trim());
+  if (
+    footerLines.some(
+      (line) =>
+        BREAKING_FOOTER_PREFIX_PATTERN.test(line) &&
+        !BREAKING_FOOTER_PATTERN.test(line),
+    )
+  ) {
+    return "unknown";
+  }
+  const hasBreakingFooter = footerLines.some((line) =>
+    BREAKING_FOOTER_PATTERN.test(line),
   );
   if (headerMatch[2] === "!" || hasBreakingFooter) return "major";
 
@@ -181,14 +195,33 @@ function isGenericText(text) {
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\[[^\]]*\]\s*/gm, "")
     .trim();
-  return /^(?:update|todo|tbd|n\/a|tbc|user-visible .+|required only when applicable)\.?$/i.test(
+  return /^(?:update|todo|tbd|n\/a|tbc|major|minor|patch|none|unknown|fix|feature|breaking|migration|user-visible .+|required only when applicable)\.?$/i.test(
     normalizedText,
   );
 }
 
+function hasMeaningfulProse(text) {
+  const normalizedText = text
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\[[^\]]*\]\s*/gm, "")
+    .trim();
+  return (
+    normalizedText.length >= 3 &&
+    /[\p{L}\p{N}]/u.test(normalizedText) &&
+    !isGenericText(normalizedText)
+  );
+}
+
 function assertMeaningfulSection(notes, heading, notesPath) {
-  const body = sectionBody(notes, heading);
-  if (!body || isGenericText(body)) {
+  let body = sectionBody(notes, heading);
+  if (heading === "Summary") {
+    body = body
+      .split(/\r?\n/)
+      .filter((line) => !/^(?:Impact|Rationale):[ \t]*/.test(line))
+      .join("\n")
+      .trim();
+  }
+  if (!hasMeaningfulProse(body)) {
     throw new Error(`Release notes ${heading} section is missing or generic: ${notesPath}`);
   }
   return body;
@@ -198,15 +231,19 @@ function assertReleaseNotes(rootDirectory, version) {
   const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
   assertNonEmptyFile(notesPath, "Release notes");
   const notes = readFileSync(notesPath, "utf8");
-  const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (!new RegExp(`^# Release ${escapedVersion}\\s*$`, "m").test(notes)) {
+  const noteLines = notes.split(/\r?\n/);
+  if (noteLines[0] !== `# Release ${version}`) {
     throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
   }
-  const dateMatches = [...notes.matchAll(/^Date: (\d{4}-\d{2}-\d{2})\s*$/gm)];
-  const dateMatch = dateMatches[0];
+  if (noteLines.some((line, index) => index > 0 && /^# /.test(line))) {
+    throw new Error(`Release notes contain an invalid top-level heading: ${notesPath}`);
+  }
+  const dateLines = noteLines.filter((line) => line.startsWith("Date:"));
+  const dateMatch = dateLines.length === 1
+    ? /^Date: (\d{4}-\d{2}-\d{2})$/.exec(dateLines[0])
+    : null;
   const date = dateMatch ? new Date(`${dateMatch[1]}T00:00:00.000Z`) : null;
   if (
-    dateMatches.length !== 1 ||
     !dateMatch ||
     !date ||
     Number.isNaN(date.valueOf()) ||
@@ -214,41 +251,46 @@ function assertReleaseNotes(rootDirectory, version) {
   ) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
-  const headings = [...notes.matchAll(/^## ([^\n]+)\s*$/gm)];
+  const headings = [...notes.matchAll(/^## ([^\r\n]+)$/gm)];
+  const headingNames = headings.map(([, heading]) => heading);
   for (const [, heading] of headings) {
-    if (!NOTE_HEADINGS.has(heading.trim())) {
+    if (!NOTE_HEADINGS.has(heading)) {
       throw new Error(`Release notes contain an unsupported section: ${heading}`);
     }
   }
+  if (new Set(headingNames).size !== headingNames.length) {
+    throw new Error(`Release notes contain duplicate sections: ${notesPath}`);
+  }
+  if (headingNames.filter((heading) => heading === "Summary").length !== 1) {
+    throw new Error(`Release notes Summary section is missing or duplicated: ${notesPath}`);
+  }
+  if (
+    headingNames.filter((heading) => heading === "User-visible changes").length !== 1
+  ) {
+    throw new Error(`Release notes User-visible changes section is missing or duplicated: ${notesPath}`);
+  }
   assertMeaningfulSection(notes, "Summary", notesPath);
   assertMeaningfulSection(notes, "User-visible changes", notesPath);
-  const impactMatches = [
-    ...notes.matchAll(/^Impact:[ \t]*(major|minor|patch|none|unknown)[ \t]*$/gm),
-  ];
-  const rationaleMatches = [...notes.matchAll(/^Rationale:[ \t]*(\S.*)$/gm)];
+  const impactLines = noteLines.filter((line) => line.startsWith("Impact:"));
+  const rationaleLines = noteLines.filter((line) => line.startsWith("Rationale:"));
+  const impactMatches = impactLines.length === 1
+    ? [...impactLines[0].matchAll(/^Impact: (major|minor|patch|none|unknown)$/g)]
+    : [];
+  const rationaleMatches = rationaleLines.length === 1
+    ? [...rationaleLines[0].matchAll(/^Rationale: (\S.*)$/g)]
+    : [];
   if (impactMatches.length !== 1) {
     throw new Error(`Release notes Impact: field is missing or invalid: ${notesPath}`);
   }
   if (
     rationaleMatches.length !== 1 ||
-    isGenericText(rationaleMatches[0][1])
+    !hasMeaningfulProse(rationaleMatches[0]?.[1] ?? "")
   ) {
     throw new Error(`Release notes Rationale: field is missing or generic: ${notesPath}`);
   }
   const noteImpact = impactMatches[0][1];
   if (noteImpact === "unknown" || noteImpact === "none") {
     throw new Error(`Release notes Impact must identify a release impact: ${notesPath}`);
-  }
-
-  const concreteHeadings = new Set(["User-visible changes"]);
-  const concreteChange = headings.some(([, heading]) => {
-    const normalizedHeading = heading.trim();
-    if (!concreteHeadings.has(normalizedHeading)) return false;
-    const body = sectionBody(notes, normalizedHeading);
-    return body.length >= 9 && !isGenericText(body);
-  });
-  if (!concreteChange) {
-    throw new Error(`Release notes must contain a concrete user-visible change: ${notesPath}`);
   }
 
   if (impactToBump(noteImpact) === "major") {

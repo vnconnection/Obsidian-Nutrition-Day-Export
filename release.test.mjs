@@ -99,22 +99,30 @@ afterEach(() => {
 
 describe("release impact classification", () => {
   it("classifies conventional advisories and structured messages", () => {
+    assert.equal(classifyAdvisory(""), "unknown");
+    assert.equal(classifyAdvisory("   \n"), "unknown");
     assert.equal(classifyAdvisory("fix: correct nutrition export"), "patch");
     assert.equal(classifyAdvisory({ type: "feat", title: "Add date picker" }), "minor");
     assert.equal(classifyAdvisory("docs(release): document BRAT assets"), "none");
     assert.equal(classifyAdvisory("feat!: change export format"), "major");
     assert.equal(classifyAdvisory("feat: change export format\n\nBREAKING CHANGE: migrate callers"), "major");
+    assert.equal(classifyAdvisory("feat: change export format\n\nBREAKING-CHANGE: migrate callers"), "major");
+    assert.equal(classifyAdvisory("BREAKING CHANGE: migrate callers"), "unknown");
+    assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate callers"), "unknown");
   });
 
   it("uses major, minor, then patch precedence for mixed advisories", () => {
     assert.equal(classifyAdvisory(["fix: patch", "feat: capability", "feat!: migration"]), "major");
     assert.equal(classifyAdvisory(["fix: patch", "feat: capability"]), "minor");
     assert.equal(classifyAdvisory(["fix: patch", "docs: notes"]), "patch");
+    assert.equal(classifyAdvisory(["docs: notes", ""]), "unknown");
     assert.equal(classifyAdvisory(["fix: patch", "unclassified change"]), "unknown");
     assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate release metadata"), "unknown");
     assert.equal(calculateNextVersion("0.2.0", "major"), "1.0.0");
     assert.equal(calculateNextVersion("0.2.0", "minor"), "0.3.0");
     assert.equal(calculateNextVersion("0.2.0", "patch"), "0.2.1");
+    assert.equal(calculateNextVersion("0.0.9", "minor"), "0.1.0");
+    assert.equal(calculateNextVersion("0.0.9", "major"), "1.0.0");
   });
 
   it("keeps unknown impact blocking instead of guessing a bump", () => {
@@ -163,6 +171,16 @@ describe("release notes and metadata validation", () => {
       notes: validNotes("0.2.0").replace("Rationale: The release gate must reject incomplete plugin packages before publication.\n", ""),
     });
     assert.throws(() => validateRelease({ rootDirectory: rationaleRoot }), /Rationale:/);
+
+    for (const impact of ["none", "unknown"]) {
+      const impactRoot = createFixture({ notes: validNotes("0.2.0").replace("Impact: patch", `Impact: ${impact}`) });
+      assert.throws(() => validateRelease({ rootDirectory: impactRoot }), /Impact must identify/);
+    }
+
+    const nonCanonical = createFixture({
+      notes: validNotes("0.2.0").replace("Impact: patch", "Impact:  patch"),
+    });
+    assert.throws(() => validateRelease({ rootDirectory: nonCanonical }), /Impact:/);
   });
 
   it("requires breaking changes and migration sections for major impact", () => {

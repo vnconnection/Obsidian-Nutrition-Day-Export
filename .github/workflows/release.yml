@@ -76,16 +76,48 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          remote_tag_sha="$(git ls-remote origin "refs/tags/$RELEASE_TAG^{}" | awk '{print $1}')"
+          if [[ -z "$remote_tag_sha" ]]; then
+            remote_tag_sha="$(git ls-remote origin "refs/tags/$RELEASE_TAG" | awk '{print $1}')"
+          fi
+          if [[ "$remote_tag_sha" != "$GITHUB_SHA" ]]; then
+            echo "Remote tag $RELEASE_TAG does not point to $GITHUB_SHA: $remote_tag_sha" >&2
+            exit 1
+          fi
           notes="$(cat "docs/releases/$RELEASE_TAG.md")"
-          release_json="$(gh release view "$RELEASE_TAG" --json tagName,body,assets)"
+          release_json="$(gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,body,assets)"
           expected_assets=(main.js manifest.json "nutrition-day-export-$RELEASE_TAG.zip")
           if [[ -f styles.css ]]; then
             expected_assets+=(styles.css)
           fi
           expected_json="$(printf '%s\n' "${expected_assets[@]}" | jq -Rsc 'split("\n")[:-1]')"
+          for asset in "${expected_assets[@]}"; do
+            local_path="$asset"
+            if [[ "$asset" == nutrition-day-export-*.zip ]]; then
+              local_path="artifacts/$asset"
+            fi
+            if [[ ! -s "$local_path" ]]; then
+              echo "Expected local asset is missing or empty: $asset" >&2
+              exit 1
+            fi
+          done
+          checksum_args=()
+          for asset in "${expected_assets[@]}"; do
+            local_path="$asset"
+            if [[ "$asset" == nutrition-day-export-*.zip ]]; then
+              local_path="artifacts/$asset"
+            fi
+            checksum_args+=("$(sha256sum "$local_path" | awk '{print $1}'):$asset")
+          done
+          expected_digests="$(printf '%s\n' "${checksum_args[@]}" | jq -Rsc 'split("\n")[:-1] | map(split(":")) | map({name: .[1], digest: ("sha256:" + .[0])})')"
           jq -e --arg tag "$RELEASE_TAG" --arg body "$notes" --argjson expected "$expected_json" '
             .tagName == $tag and
+            .isDraft == false and
+            .isPrerelease == false and
             .body == $body and
             ([.assets[].name] | sort) == ($expected | sort) and
-            ([.assets[] | select(.size <= 0)] | length) == 0
+            ([.assets[] | select(.size <= 0 or (.digest | type != "string"))] | length) == 0
+          ' <<<"$release_json" >/dev/null
+          jq -e --argjson expected "$expected_digests" '
+            ([.assets[] | {name, digest}] | sort_by(.name)) == ($expected | sort_by(.name))
           ' <<<"$release_json" >/dev/null
