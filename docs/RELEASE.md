@@ -15,27 +15,31 @@ repository also requires authored notes at `docs/releases/<X.Y.Z>.md`:
 
 Date: YYYY-MM-DD
 
-## Summary
-
-Short, user-visible summary.
-
 Impact: patch
 
 Rationale: Why this impact classification is correct for existing users.
+
+## Summary
+
+Short, user-visible summary.
 
 ## User-visible changes
 
 - Concrete user-visible change.
 ```
 
-Only `Summary`, `User-visible changes`, `Added`, `Changed`, `Fixed`, `Breaking
-changes`, `Migration`, and `Documentation` headings are valid, with exactly one
-`Summary` and one `User-visible changes` heading. The fields must use the exact
-forms `Impact: major|minor|patch`, `Rationale: <prose>`, and contain meaningful
-content; `none` and `unknown` are rejected for a publishable release. The notes
-must contain a concrete user-visible change. For `major` impact, include both
-`Breaking changes` and `Migration` sections with meaningful content. The GitHub
-Release body is taken from this notes file, not generated automatically.
+Only `Summary` and `User-visible changes` headings are valid for every release,
+with exactly one of each. `Breaking changes` and `Migration` are valid only for
+`major` impact, and both must be present with meaningful content for a major
+release. No alternative headings are accepted. The fields must use the exact
+forms `Impact: major|minor|patch|none|unknown`, `Rationale: <prose>`, and
+appear as inline lines before `## Summary` in the order `Date`, `Impact`,
+`Rationale`. All three fields and the required sections must contain meaningful
+content. Validation accepts `none` and `unknown` so a no-release decision or a
+blocking classification can be recorded and checked; neither is a bumpable
+impact or a basis for release preparation. The notes must contain a concrete
+user-visible change. The GitHub Release body is taken from this notes file, not
+generated automatically.
 
 ## Local preparation
 
@@ -57,8 +61,9 @@ is `unknown` and blocks version selection.
 `X.Y.(Z+1)`, including when `X` is `0`. Preparation
 runs the pnpm typecheck, tests, lint, and production build, then updates
 package and plugin metadata. It never stages, commits, tags, pushes a branch
-or tag, creates or edits a GitHub Release, or uploads assets. `unknown` and
-`none` are intentionally rejected rather than guessed.
+or tag, creates or edits a GitHub Release, or uploads assets. `none` and
+`unknown` are intentionally rejected by preparation rather than guessed; use
+`release:validate` to check their notes without selecting a version bump.
 
 To inspect an advisory without changing files:
 

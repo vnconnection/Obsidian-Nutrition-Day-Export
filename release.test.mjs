@@ -22,34 +22,37 @@ import {
 
 const fixtureRoots = [];
 
-const validNotes = (version) => `# Release ${version}
+const notesWithImpact = (version, impact) => `# Release ${version}
 
 Date: 2026-09-02
+
+Impact: ${impact}
+
+Rationale: The release gate must reject incomplete plugin packages before publication.
 
 ## Summary
 
 Exports now validate release metadata before packaging.
-
-Impact: patch
-
-Rationale: The release gate must reject incomplete plugin packages before publication.
 
 ## User-visible changes
 
 - Rejects mismatched plugin metadata before a release is published.
 `;
 
+const validNotes = (version) => notesWithImpact(version, "patch");
+const emptyNotes = "";
+
 const majorNotes = (version) => `# Release ${version}
 
 Date: 2026-09-02
 
-## Summary
-
-The export contract now requires the new metadata format.
-
 Impact: major
 
 Rationale: Existing release metadata is no longer sufficient for this contract.
+
+## Summary
+
+The export contract now requires the new metadata format.
 
 ## User-visible changes
 
@@ -195,6 +198,21 @@ describe("release impact classification", () => {
     assert.equal(calculateNextVersion("0.2.0", "patch"), "0.2.1");
     assert.equal(calculateNextVersion("0.0.9", "minor"), "0.1.0");
     assert.equal(calculateNextVersion("0.0.9", "major"), "1.0.0");
+    assert.equal(
+      calculateNextVersion(
+        "9007199254740993.9007199254740993.9007199254740993",
+        "patch",
+      ),
+      "9007199254740993.9007199254740993.9007199254740994",
+    );
+    assert.equal(
+      calculateNextVersion("9007199254740993.9007199254740993.0", "minor"),
+      "9007199254740993.9007199254740994.0",
+    );
+    assert.equal(
+      calculateNextVersion("9007199254740993.0.0", "major"),
+      "9007199254740994.0.0",
+    );
   });
 
   it("keeps unknown impact blocking instead of guessing a bump", () => {
@@ -202,20 +220,22 @@ describe("release impact classification", () => {
       classifyAdvisory("maintenance work without a release signal"),
       "unknown",
     );
-    assert.equal(impactToBump("unknown"), null);
-    assert.throws(
-      () => calculateNextVersion("0.2.0", "unknown"),
-      /Unknown release impact/,
-    );
-    assert.throws(
-      () =>
-        prepareRelease({
-          rootDirectory: createFixture(),
-          impact: "unknown",
-          runChecks: () => {},
-        }),
-      /explicit --impact/,
-    );
+    for (const impact of ["none", "unknown"]) {
+      assert.equal(impactToBump(impact), null);
+      assert.throws(
+        () => calculateNextVersion("0.2.0", impact),
+        /Unknown release impact/,
+      );
+      assert.throws(
+        () =>
+          prepareRelease({
+            rootDirectory: createFixture(),
+            impact,
+            runChecks: () => {},
+          }),
+        /explicit --impact/,
+      );
+    }
   });
 });
 
@@ -232,9 +252,19 @@ describe("release notes and metadata validation", () => {
     assert.equal(result.notes, readFileSync(result.notesPath, "utf8"));
   });
 
+  it("accepts none and unknown impact fixtures for validation", () => {
+    for (const impact of ["none", "unknown"]) {
+      const rootDirectory = createFixture({
+        notes: notesWithImpact("0.2.0", impact),
+      });
+      assert.equal(validateRelease({ rootDirectory }).impact, impact);
+    }
+  });
+
   it("rejects missing, generic, malformed, or unsupported notes", () => {
     const invalidNotes = [
-      "# Release 0.2.0\n\nDate: 2026-09-02\n\n## Summary\n\nupdate\n",
+      "# Release 0.2.0\n\nDate: 2026-09-02\n\nImpact: patch\n\nRationale: A real release rationale.\n\n## Summary\n\nupdate\n\n## User-visible changes\n\n- A concrete correction for users.\n",
+      emptyNotes,
       "# Release 0.2.0\n\nDate: 2026-02-30\n\n## Summary\n\nA real summary.\n\n## Fixed\n\n- A concrete correction for users.\n",
       "# Release 0.2.0\n\nDate: 2026-09-02\n\n## Summary\n\nA real summary.\n\n## Internal\n\n- A concrete correction for users.\n",
       "# Release 0.2.0\n\nDate: 2026-09-02\n\n## Summary\n\nA real summary.\n",
@@ -307,19 +337,6 @@ describe("release notes and metadata validation", () => {
       /Rationale:/,
     );
 
-    for (const impact of ["none", "unknown"]) {
-      const impactRoot = createFixture({
-        notes: validNotes("0.2.0").replace(
-          "Impact: patch",
-          `Impact: ${impact}`,
-        ),
-      });
-      assert.throws(
-        () => validateRelease({ rootDirectory: impactRoot }),
-        /Impact must identify/,
-      );
-    }
-
     const nonCanonical = createFixture({
       notes: validNotes("0.2.0").replace("Impact: patch", "Impact:  patch"),
     });
@@ -343,16 +360,32 @@ describe("release notes and metadata validation", () => {
         "## User-visible changes",
         "## Fixed\n\n- A concrete correction for users.\n\n## User-visible changes",
       ),
+      `# Release 0.2.0
+
+Date: 2026-09-02
+
+## Summary
+
+Exports now validate release metadata before packaging.
+
+Impact: patch
+
+Rationale: The release gate must reject incomplete plugin packages before publication.
+
+## User-visible changes
+
+- Rejects mismatched plugin metadata before a release is published.
+`,
       validNotes("0.2.0").replace(
-        "Impact: patch",
-        "## User-visible changes\n\n- A concrete correction for users.\n\nImpact: patch",
+        "Impact: patch\n\nRationale:",
+        "Rationale: The release gate must reject incomplete plugin packages before publication.\n\nImpact: patch",
       ),
     ];
 
     for (const notes of invalidNotes) {
       assert.throws(
         () => validateRelease({ rootDirectory: createFixture({ notes }) }),
-        /canonical grammar|sections must start|duplicate sections/,
+        /canonical grammar|sections must start|duplicate sections|unsupported section/,
       );
     }
   });
@@ -368,6 +401,36 @@ describe("release notes and metadata validation", () => {
       () => validateRelease({ rootDirectory: missingMigration }),
       /Migration section/,
     );
+  });
+
+  it("rejects major-only and alternative headings for other notes", () => {
+    for (const impact of ["patch", "minor", "none", "unknown"]) {
+      const notes = notesWithImpact("0.2.0", impact).replace(
+        "## User-visible changes",
+        "## User-visible changes\n\n- A concrete correction for users.\n\n## Breaking changes\n\n- Existing consumers must update.\n\n## Migration\n\n- Follow the documented upgrade path.",
+      );
+      assert.throws(
+        () => validateRelease({ rootDirectory: createFixture({ notes }) }),
+        /only valid for major impact/,
+      );
+    }
+
+    for (const heading of [
+      "Added",
+      "Changed",
+      "Fixed",
+      "Documentation",
+      "Changes",
+    ]) {
+      const notes = validNotes("0.2.0").replace(
+        "## User-visible changes",
+        `## ${heading}\n\n- A concrete correction for users.\n\n## User-visible changes`,
+      );
+      assert.throws(
+        () => validateRelease({ rootDirectory: createFixture({ notes }) }),
+        /unsupported section|sections must start/,
+      );
+    }
   });
 
   it("requires matching package, manifest, version map, and tag metadata", () => {
@@ -419,6 +482,11 @@ describe("release assets and side-effect boundaries", () => {
     assert.match(
       workflow,
       /gh release create .*--draft=false --prerelease=false/,
+    );
+    assert.match(workflow, /defaults:\s+run:\s+shell: bash/);
+    assert.match(
+      workflow,
+      /Create or update GitHub Release[\s\S]*set -euo pipefail/,
     );
     assert.match(
       workflow,

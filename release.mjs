@@ -37,15 +37,12 @@ const BREAKING_FOOTER_PREFIX_PATTERN = /^BREAKING(?:-| )CHANGE[ \t]*:/i;
 const NOTE_HEADINGS = new Set([
   "Summary",
   "User-visible changes",
-  "Added",
-  "Changed",
-  "Fixed",
   "Breaking changes",
   "Migration",
-  "Documentation",
 ]);
+const MAJOR_ONLY_NOTE_HEADINGS = new Set(["Breaking changes", "Migration"]);
 const ASSET_NAMES = ["main.js", "manifest.json"];
-const RELEASE_FIELD_PATTERN = /^(?:Date|Impact|Rationale):/i;
+const RELEASE_FIELD_PATTERN = /^\s*(?:Date|Impact|Rationale)\s*:/i;
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -166,10 +163,10 @@ export function calculateNextVersion(currentVersion, impact) {
   if (!bump) {
     throw new Error(`Unknown release impact: ${impact}`);
   }
-  const [major, minor, patch] = currentVersion.split(".").map(Number);
-  if (bump === "major") return `${major + 1}.0.0`;
-  if (bump === "minor") return `${major}.${minor + 1}.0`;
-  return `${major}.${minor}.${patch + 1}`;
+  const [major, minor, patch] = currentVersion.split(".").map(BigInt);
+  if (bump === "major") return `${major + 1n}.0.0`;
+  if (bump === "minor") return `${major}.${minor + 1n}.0`;
+  return `${major}.${minor}.${patch + 1n}`;
 }
 
 function assetNames(rootDirectory) {
@@ -273,7 +270,14 @@ function parseAuthoredNotes(notes, notesPath) {
   const headings = [];
   activeLines.forEach((line, lineIndex) => {
     const heading = parseHeading(line);
-    if (!heading) return;
+    if (!heading) {
+      if (/^ {0,3}#{1,6}(?:[ \t]+|$)/.test(line)) {
+        throw new Error(
+          `Release notes contain an unsupported heading: ${line.trim()}`,
+        );
+      }
+      return;
+    }
     if (lineIndex === 0 && heading.level === 1) {
       return;
     }
@@ -354,10 +358,10 @@ function assertReleaseNotes(rootDirectory, version) {
   }
 
   const firstSectionLine = parsedNotes.headings[0].lineIndex;
-  const summaryEndLine = parsedNotes.headings[1].lineIndex;
   const dateLineIndexes = [];
   const impactLineIndexes = [];
   const rationaleLineIndexes = [];
+  const fieldLikeLines = [];
   noteLines.forEach((line, lineIndex) => {
     const trimmedLine = line.trim();
     if (trimmedLine.startsWith("Date:")) dateLineIndexes.push(lineIndex);
@@ -365,38 +369,35 @@ function assertReleaseNotes(rootDirectory, version) {
     if (trimmedLine.startsWith("Rationale:")) {
       rationaleLineIndexes.push(lineIndex);
     }
-    if (
-      RELEASE_FIELD_PATTERN.test(trimmedLine) &&
-      !trimmedLine.startsWith("Date:") &&
-      !trimmedLine.startsWith("Impact:") &&
-      !trimmedLine.startsWith("Rationale:")
-    ) {
-      throw new Error(
-        `Release notes contain a non-canonical release field: ${notesPath}`,
-      );
-    }
+    if (RELEASE_FIELD_PATTERN.test(line)) fieldLikeLines.push(lineIndex);
   });
+
+  const nonCanonicalFieldLine = fieldLikeLines.find(
+    (lineIndex) => !/^(?:Date|Impact|Rationale): /.test(noteLines[lineIndex]),
+  );
+  if (nonCanonicalFieldLine !== undefined) {
+    throw new Error(
+      `Release notes contain a non-canonical release field: ${notesPath}`,
+    );
+  }
   if (
     dateLineIndexes.some((lineIndex) => lineIndex >= firstSectionLine) ||
-    impactLineIndexes.some(
-      (lineIndex) =>
-        lineIndex <= parsedNotes.headings[0].lineIndex ||
-        lineIndex >= summaryEndLine,
-    ) ||
-    rationaleLineIndexes.some(
-      (lineIndex) =>
-        lineIndex <= parsedNotes.headings[0].lineIndex ||
-        lineIndex >= summaryEndLine,
-    ) ||
-    (impactLineIndexes.length > 0 &&
-      rationaleLineIndexes.length > 0 &&
-      impactLineIndexes[0] >= rationaleLineIndexes[0]) ||
+    impactLineIndexes.some((lineIndex) => lineIndex >= firstSectionLine) ||
+    rationaleLineIndexes.some((lineIndex) => lineIndex >= firstSectionLine) ||
+    fieldLikeLines.some((lineIndex) => lineIndex >= firstSectionLine) ||
+    (dateLineIndexes.length === 1 &&
+      impactLineIndexes.length === 1 &&
+      rationaleLineIndexes.length === 1 &&
+      !(
+        dateLineIndexes[0] < impactLineIndexes[0] &&
+        impactLineIndexes[0] < rationaleLineIndexes[0]
+      )) ||
     noteLines.some(
       (line, lineIndex) =>
         lineIndex > 0 &&
         lineIndex < firstSectionLine &&
         line.trim() &&
-        !line.trim().startsWith("Date:"),
+        !/^(?:Date|Impact|Rationale): /.test(line),
     )
   ) {
     throw new Error(
@@ -435,12 +436,15 @@ function assertReleaseNotes(rootDirectory, version) {
     );
   }
   const noteImpact = impactMatches[0][1];
-  if (noteImpact === "unknown" || noteImpact === "none") {
+
+  const majorOnlySections = headingNames.filter((heading) =>
+    MAJOR_ONLY_NOTE_HEADINGS.has(heading),
+  );
+  if (noteImpact !== "major" && majorOnlySections.length > 0) {
     throw new Error(
-      `Release notes Impact must identify a release impact: ${notesPath}`,
+      `Release notes ${majorOnlySections.join(", ")} sections are only valid for major impact: ${notesPath}`,
     );
   }
-
   if (impactToBump(noteImpact) === "major") {
     assertMeaningfulSection(parsedNotes, "Breaking changes", notesPath);
     assertMeaningfulSection(parsedNotes, "Migration", notesPath);
