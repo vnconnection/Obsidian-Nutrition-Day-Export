@@ -66,10 +66,10 @@ jobs:
           fi
           assets+=("artifacts/nutrition-day-export-$RELEASE_TAG.zip")
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md" --draft=false --prerelease=false
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           else
-            gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --title "$RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
+            gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --title "$RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md" --draft=false --prerelease=false
           fi
 
       - name: Verify published release
@@ -90,7 +90,6 @@ jobs:
             echo "Remote tag $RELEASE_TAG does not point to $checked_out_sha: $remote_tag_sha" >&2
             exit 1
           fi
-          notes="$(cat "docs/releases/$RELEASE_TAG.md")"
           release_json="$(gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,body,assets)"
           expected_assets=(main.js manifest.json "nutrition-day-export-$RELEASE_TAG.zip")
           if [[ -f styles.css ]]; then
@@ -116,7 +115,7 @@ jobs:
             checksum_args+=("$(sha256sum "$local_path" | awk '{print $1}'):$asset")
           done
           expected_digests="$(printf '%s\n' "${checksum_args[@]}" | jq -Rsc 'split("\n")[:-1] | map(split(":")) | map({name: .[1], digest: ("sha256:" + .[0])})')"
-          jq -e --arg tag "$RELEASE_TAG" --arg body "$notes" --argjson expected "$expected_json" '
+          jq -e --arg tag "$RELEASE_TAG" --rawfile body "docs/releases/$RELEASE_TAG.md" --argjson expected "$expected_json" '
             .tagName == $tag and
             .isDraft == false and
             .isPrerelease == false and

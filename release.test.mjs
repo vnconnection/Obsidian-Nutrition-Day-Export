@@ -118,6 +118,9 @@ describe("release impact classification", () => {
   it("classifies conventional advisories and structured messages", () => {
     assert.equal(classifyAdvisory(""), "unknown");
     assert.equal(classifyAdvisory("   \n"), "unknown");
+    assert.equal(classifyAdvisory("major"), "unknown");
+    assert.equal(classifyAdvisory("patch"), "unknown");
+    assert.equal(classifyAdvisory("BREAKING CHANGE:"), "unknown");
     assert.equal(classifyAdvisory("fix: correct nutrition export"), "patch");
     assert.equal(
       classifyAdvisory({ type: "feat", title: "Add date picker" }),
@@ -149,6 +152,26 @@ describe("release impact classification", () => {
     );
     assert.equal(classifyAdvisory("BREAKING CHANGE: migrate callers"), "major");
     assert.equal(classifyAdvisory("BREAKING-CHANGE: migrate callers"), "major");
+    assert.equal(
+      classifyAdvisory(
+        "fix: change export format\nBREAKING CHANGE: migrate callers",
+      ),
+      "major",
+    );
+  });
+
+  it("accepts the agreed message input for release:classify", () => {
+    const output = execFileSync(
+      process.execPath,
+      [
+        "release.mjs",
+        "classify",
+        "--message",
+        "fix: change export format\n\nBREAKING-CHANGE: migrate callers",
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
+    );
+    assert.equal(output, "major\n");
   });
 
   it("uses major, minor, then patch precedence for mixed advisories", () => {
@@ -242,6 +265,30 @@ describe("release notes and metadata validation", () => {
     );
   });
 
+  it("rejects numeric-only prose in required release-note content", () => {
+    const numericOnlyNotes = [
+      validNotes("0.2.0").replace(
+        "Exports now validate release metadata before packaging.",
+        "123456",
+      ),
+      validNotes("0.2.0").replace(
+        "- Rejects mismatched plugin metadata before a release is published.",
+        "- 123456",
+      ),
+      validNotes("0.2.0").replace(
+        "Rationale: The release gate must reject incomplete plugin packages before publication.",
+        "Rationale: 123456",
+      ),
+    ];
+
+    for (const notes of numericOnlyNotes) {
+      assert.throws(
+        () => validateRelease({ rootDirectory: createFixture({ notes }) }),
+        /missing or generic/,
+      );
+    }
+  });
+
   it("requires impact and rationale sections", () => {
     const rootDirectory = createFixture({
       notes:
@@ -280,6 +327,34 @@ describe("release notes and metadata validation", () => {
       () => validateRelease({ rootDirectory: nonCanonical }),
       /Impact:/,
     );
+  });
+
+  it("requires canonical release-note field placement and section order", () => {
+    const invalidNotes = [
+      validNotes("0.2.0").replace(
+        "Date: 2026-09-02",
+        "Generated release notes\n\nDate: 2026-09-02",
+      ),
+      validNotes("0.2.0").replace(
+        "## Summary",
+        "## User-visible changes\n\n- A concrete correction for users.\n\n## Summary",
+      ),
+      validNotes("0.2.0").replace(
+        "## User-visible changes",
+        "## Fixed\n\n- A concrete correction for users.\n\n## User-visible changes",
+      ),
+      validNotes("0.2.0").replace(
+        "Impact: patch",
+        "## User-visible changes\n\n- A concrete correction for users.\n\nImpact: patch",
+      ),
+    ];
+
+    for (const notes of invalidNotes) {
+      assert.throws(
+        () => validateRelease({ rootDirectory: createFixture({ notes }) }),
+        /canonical grammar|sections must start|duplicate sections/,
+      );
+    }
   });
 
   it("requires breaking changes and migration sections for major impact", () => {
@@ -337,6 +412,19 @@ describe("release assets and side-effect boundaries", () => {
     );
     assert.match(workflow, /\.isDraft == false/);
     assert.match(workflow, /\.isPrerelease == false/);
+    assert.match(
+      workflow,
+      /gh release edit .*--draft=false --prerelease=false/,
+    );
+    assert.match(
+      workflow,
+      /gh release create .*--draft=false --prerelease=false/,
+    );
+    assert.match(
+      workflow,
+      /--rawfile body "docs\/releases\/\$RELEASE_TAG\.md"/,
+    );
+    assert.doesNotMatch(workflow, /notes=\"\$\(cat /);
     assert.match(workflow, /\[\.assets\[\]\.name\] \| sort/);
     assert.match(workflow, /sha256sum/);
     assert.match(workflow, /\{name, digest\}/);

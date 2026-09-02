@@ -108,8 +108,6 @@ function classifySingleAdvisory(advisory) {
   const normalizedText = text.toLowerCase();
   if (!normalizedText) return "unknown";
 
-  if (RELEASE_IMPACTS.includes(normalizedText)) return normalizedText;
-
   const lines = text.split(/\r?\n/);
   const headerMatch = CONVENTIONAL_HEADER_PATTERN.exec(lines[0].trim());
   const standaloneBreakingFooter =
@@ -210,7 +208,7 @@ function hasMeaningfulProse(text) {
       .trim();
     return (
       normalizedLine.length >= 3 &&
-      /[\p{L}\p{N}]/u.test(normalizedLine) &&
+      /\p{L}/u.test(normalizedLine) &&
       !isGenericText(normalizedLine)
     );
   });
@@ -231,9 +229,9 @@ function assertMeaningfulSection(notes, heading, notesPath) {
 }
 
 function parseHeading(line) {
-  const match = /^ {0,3}(#{1,6})(?:[ \t]+|$)(.*?)[ \t]*$/.exec(line);
+  const match = /^(#{1,6})(?:[ \t]+|$)([^\r\n]*?[^\r\n \t])?$/.exec(line);
   if (!match) return null;
-  return { level: match[1].length, name: match[2].trim() };
+  return { level: match[1].length, name: match[2] ?? "" };
 }
 
 function parseAuthoredNotes(notes, notesPath) {
@@ -330,6 +328,14 @@ function assertReleaseNotes(rootDirectory, version) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
   const headingNames = parsedNotes.headings.map(({ name }) => name);
+  if (
+    parsedNotes.headings[0]?.name !== "Summary" ||
+    parsedNotes.headings[1]?.name !== "User-visible changes"
+  ) {
+    throw new Error(
+      `Release notes sections must start with Summary and User-visible changes: ${notesPath}`,
+    );
+  }
   if (new Set(headingNames).size !== headingNames.length) {
     throw new Error(`Release notes contain duplicate sections: ${notesPath}`);
   }
@@ -344,6 +350,57 @@ function assertReleaseNotes(rootDirectory, version) {
   ) {
     throw new Error(
       `Release notes User-visible changes section is missing or duplicated: ${notesPath}`,
+    );
+  }
+
+  const firstSectionLine = parsedNotes.headings[0].lineIndex;
+  const summaryEndLine = parsedNotes.headings[1].lineIndex;
+  const dateLineIndexes = [];
+  const impactLineIndexes = [];
+  const rationaleLineIndexes = [];
+  noteLines.forEach((line, lineIndex) => {
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith("Date:")) dateLineIndexes.push(lineIndex);
+    if (trimmedLine.startsWith("Impact:")) impactLineIndexes.push(lineIndex);
+    if (trimmedLine.startsWith("Rationale:")) {
+      rationaleLineIndexes.push(lineIndex);
+    }
+    if (
+      RELEASE_FIELD_PATTERN.test(trimmedLine) &&
+      !trimmedLine.startsWith("Date:") &&
+      !trimmedLine.startsWith("Impact:") &&
+      !trimmedLine.startsWith("Rationale:")
+    ) {
+      throw new Error(
+        `Release notes contain a non-canonical release field: ${notesPath}`,
+      );
+    }
+  });
+  if (
+    dateLineIndexes.some((lineIndex) => lineIndex >= firstSectionLine) ||
+    impactLineIndexes.some(
+      (lineIndex) =>
+        lineIndex <= parsedNotes.headings[0].lineIndex ||
+        lineIndex >= summaryEndLine,
+    ) ||
+    rationaleLineIndexes.some(
+      (lineIndex) =>
+        lineIndex <= parsedNotes.headings[0].lineIndex ||
+        lineIndex >= summaryEndLine,
+    ) ||
+    (impactLineIndexes.length > 0 &&
+      rationaleLineIndexes.length > 0 &&
+      impactLineIndexes[0] >= rationaleLineIndexes[0]) ||
+    noteLines.some(
+      (line, lineIndex) =>
+        lineIndex > 0 &&
+        lineIndex < firstSectionLine &&
+        line.trim() &&
+        !line.trim().startsWith("Date:"),
+    )
+  ) {
+    throw new Error(
+      `Release notes do not follow the canonical grammar: ${notesPath}`,
     );
   }
   assertMeaningfulSection(parsedNotes, "Summary", notesPath);
@@ -588,12 +645,28 @@ function parseCliArguments(argumentsList) {
     impact = cliArguments[impactIndex + 1];
     cliArguments.splice(impactIndex, 2);
   }
+  let message;
+  const messageIndex = cliArguments.findIndex(
+    (argument) => argument === "--message" || argument === "-m",
+  );
+  if (messageIndex !== -1) {
+    message = cliArguments[messageIndex + 1] ?? "";
+    cliArguments.splice(messageIndex, 2);
+  } else {
+    const inlineMessageIndex = cliArguments.findIndex((argument) =>
+      argument.startsWith("--message="),
+    );
+    if (inlineMessageIndex !== -1) {
+      message = cliArguments[inlineMessageIndex].slice("--message=".length);
+      cliArguments.splice(inlineMessageIndex, 1);
+    }
+  }
   return {
     command,
     expectedVersion: cliArguments[0],
     outputPath: cliArguments[1],
     impact,
-    advisory: cliArguments.join(" "),
+    advisory: message ?? cliArguments.join(" "),
   };
 }
 
