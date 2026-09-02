@@ -16,8 +16,10 @@ import {
   classifyAdvisory,
   impactToBump,
   assertGeneratedMainJsProvenance,
+  assertGeneratedArtifactProvenance,
   packageRelease,
   prepareRelease,
+  readRepositoryAdvisories,
   validateRelease,
 } from "./release.mjs";
 
@@ -134,6 +136,17 @@ describe("release impact classification", () => {
       classifyAdvisory("docs(release): document BRAT assets"),
       "none",
     );
+    for (const type of [
+      "test",
+      "tests",
+      "chore",
+      "ci",
+      "build",
+      "refactor",
+      "style",
+    ]) {
+      assert.equal(classifyAdvisory(`${type}: maintenance`), "none");
+    }
     assert.equal(classifyAdvisory("feat!: change export format"), "major");
     assert.equal(
       classifyAdvisory(
@@ -160,7 +173,19 @@ describe("release impact classification", () => {
       classifyAdvisory(
         "fix: change export format\nBREAKING CHANGE: migrate callers",
       ),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory(
+        "fix: change export format\n\nBREAKING CHANGE: migrate callers",
+      ),
       "major",
+    );
+    assert.equal(
+      classifyAdvisory(
+        "fix: change export format\n\nBREAKING CHANGE: migrate callers\ncontinued text",
+      ),
+      "unknown",
     );
     assert.equal(
       classifyAdvisory(
@@ -173,7 +198,46 @@ describe("release impact classification", () => {
       "unknown",
     );
     assert.equal(
-      classifyAdvisory("fix: change export format\nBREAKING CHANGE : migrate callers"),
+      classifyAdvisory("feat!: change export format\n\nBREAKING CHANGE:"),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory(
+        "fix: change export format\nBREAKING CHANGE : migrate callers",
+      ),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory(
+        "fix: change export format\n\nBREAKING CHANGES: migrate callers",
+      ),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory({ message: "fix: normalized message" }),
+      "patch",
+    );
+    assert.equal(
+      classifyAdvisory({ type: "feat", scope: "export", subject: "Add CSV" }),
+      "minor",
+    );
+    assert.equal(
+      classifyAdvisory({
+        header: "fix: structured footer",
+        footer: "BREAKING-CHANGE: migrate callers",
+      }),
+      "major",
+    );
+    assert.equal(
+      classifyAdvisory({ type: "feat", subject: "Add CSV", invalid: true }),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory({ type: "feat", subject: "Add CSV", footer: 42 }),
+      "unknown",
+    );
+    assert.equal(
+      classifyAdvisory({ header: "fix: empty footer", footer: "" }),
       "unknown",
     );
   });
@@ -202,6 +266,69 @@ describe("release impact classification", () => {
       { cwd: process.cwd(), encoding: "utf8" },
     );
     assert.equal(inputOutput, "major\n");
+
+    const structuredInputOutput = execFileSync(
+      process.execPath,
+      [
+        "release.mjs",
+        "classify",
+        "--input",
+        JSON.stringify(["fix: patch", { type: "feat", subject: "capability" }]),
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
+    );
+    assert.equal(structuredInputOutput, "minor\n");
+
+    const repeatedInputOutput = execFileSync(
+      process.execPath,
+      [
+        "release.mjs",
+        "classify",
+        "--message",
+        "fix: patch",
+        "--message",
+        "feat: capability",
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
+    );
+    assert.equal(repeatedInputOutput, "minor\n");
+  });
+
+  it("aggregates nested arrays and uses repository history by default", () => {
+    assert.equal(
+      classifyAdvisory([
+        ["fix: patch"],
+        [{ type: "feat", subject: "capability" }],
+      ]),
+      "minor",
+    );
+
+    const rootDirectory = mkdtempSync(join(tmpdir(), "nutrition-history-"));
+    fixtureRoots.push(rootDirectory);
+    runGit(rootDirectory, ["init", "-q", "-b", "main"]);
+    runGit(rootDirectory, ["config", "user.name", "Release Test"]);
+    runGit(rootDirectory, [
+      "config",
+      "user.email",
+      "release-test@example.invalid",
+    ]);
+    writeFileSync(join(rootDirectory, "history.txt"), "one\n");
+    runGit(rootDirectory, ["add", "history.txt"]);
+    runGit(rootDirectory, ["commit", "-qm", "docs: establish history"]);
+    writeFileSync(join(rootDirectory, "history.txt"), "two\n");
+    runGit(rootDirectory, ["add", "history.txt"]);
+    runGit(rootDirectory, ["commit", "-qm", "feat: add history entry"]);
+
+    assert.deepEqual(readRepositoryAdvisories(rootDirectory), [
+      "feat: add history entry",
+      "docs: establish history",
+    ]);
+    const output = execFileSync(
+      process.execPath,
+      [join(process.cwd(), "release.mjs"), "classify"],
+      { cwd: rootDirectory, encoding: "utf8" },
+    );
+    assert.equal(output, "minor\n");
   });
 
   it("uses major, minor, then patch precedence for mixed advisories", () => {
@@ -283,12 +410,15 @@ describe("release notes and metadata validation", () => {
     assert.equal(result.notes, readFileSync(result.notesPath, "utf8"));
   });
 
-  it("accepts none and unknown impact fixtures for validation", () => {
+  it("rejects none and unknown impacts at the release-readiness boundary", () => {
     for (const impact of ["none", "unknown"]) {
       const rootDirectory = createFixture({
         notes: notesWithImpact("0.2.0", impact),
       });
-      assert.equal(validateRelease({ rootDirectory }).impact, impact);
+      assert.throws(
+        () => validateRelease({ rootDirectory }),
+        new RegExp(`cannot be published with ${impact} impact`),
+      );
     }
   });
 
@@ -568,13 +698,16 @@ describe("release assets and side-effect boundaries", () => {
     );
   });
 
-  it("validates none and unknown notes but refuses to package them", () => {
+  it("rejects none and unknown notes at every release-readiness boundary", () => {
     for (const impact of ["none", "unknown"]) {
       const rootDirectory = createFixture({
         notes: notesWithImpact("0.2.0", impact),
       });
       const outputPath = `artifacts/${impact}.zip`;
-      assert.equal(validateRelease({ rootDirectory }).impact, impact);
+      assert.throws(
+        () => validateRelease({ rootDirectory }),
+        new RegExp(`cannot be published with ${impact} impact`),
+      );
       assert.throws(
         () => packageRelease({ rootDirectory, outputPath }),
         /cannot be published with (none|unknown) impact/,
@@ -607,6 +740,36 @@ describe("release assets and side-effect boundaries", () => {
     assert.throws(
       () => assertGeneratedMainJsProvenance(rootDirectory),
       /differs from the tracked checkout after build/,
+    );
+  });
+
+  it("requires an optional generated styles.css to be tracked and match source", () => {
+    const rootDirectory = createFixture({ styles: true });
+    mkdirSync(join(rootDirectory, "src"), { recursive: true });
+    writeFileSync(join(rootDirectory, "src", "styles.css"), ".plugin {}\n");
+    writeFileSync(
+      join(rootDirectory, "main.js"),
+      "/*\nTHIS IS A GENERATED/BUNDLED FILE BY ESBUILD\n*/\n",
+    );
+    writeFileSync(join(rootDirectory, "styles.css"), ".plugin {}\n");
+    runGit(rootDirectory, ["init", "-q", "-b", "main"]);
+    runGit(rootDirectory, ["config", "user.name", "Release Test"]);
+    runGit(rootDirectory, [
+      "config",
+      "user.email",
+      "release-test@example.invalid",
+    ]);
+    runGit(rootDirectory, ["add", "."]);
+    runGit(rootDirectory, ["commit", "-qm", "fixture"]);
+    assert.doesNotThrow(() => assertGeneratedArtifactProvenance(rootDirectory));
+
+    writeFileSync(
+      join(rootDirectory, "styles.css"),
+      ".plugin { color: red; }\n",
+    );
+    assert.throws(
+      () => assertGeneratedArtifactProvenance(rootDirectory),
+      /Generated styles\.css differs from src\/styles\.css/,
     );
   });
 

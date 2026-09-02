@@ -24,6 +24,7 @@ const PATCH_TYPES = new Set(["fix", "perf"]);
 const NONE_TYPES = new Set([
   "docs",
   "test",
+  "tests",
   "chore",
   "ci",
   "build",
@@ -33,7 +34,18 @@ const NONE_TYPES = new Set([
 const CONVENTIONAL_HEADER_PATTERN =
   /^([a-z][a-z0-9-]*)(?:\([^\r\n()]+\))?(!)?:[ \t]+\S.*$/i;
 const BREAKING_FOOTER_PATTERN = /^BREAKING(?:-| )CHANGE:[ \t]*\S.*$/i;
-const BREAKING_FOOTER_PREFIX_PATTERN = /^BREAKING(?:-| )CHANGE\b/i;
+const BREAKING_FOOTER_PREFIX_PATTERN = /^BREAKING(?:-| )CHANGE/i;
+const STRUCTURED_COMMIT_FIELDS = new Set([
+  "body",
+  "description",
+  "footer",
+  "header",
+  "message",
+  "scope",
+  "subject",
+  "title",
+  "type",
+]);
 const NOTE_HEADINGS = new Set([
   "Summary",
   "User-visible changes",
@@ -75,29 +87,92 @@ function assertBareSemver(version, label) {
   }
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringField(advisory, field) {
+  if (!Object.hasOwn(advisory, field)) return null;
+  return typeof advisory[field] === "string" ? advisory[field] : undefined;
+}
+
 function advisoryText(advisory) {
-  if (Array.isArray(advisory)) {
-    return advisory.map(advisoryText).join("\n");
-  }
   if (typeof advisory === "string") {
     return advisory;
   }
-  if (advisory && typeof advisory === "object") {
-    const explicitHeader =
-      typeof advisory.header === "string" ? advisory.header.trim() : "";
-    const type = typeof advisory.type === "string" ? advisory.type.trim() : "";
-    const subject = [
-      advisory.title,
-      advisory.subject,
-      advisory.message,
-      advisory.description,
-    ].find((value) => typeof value === "string" && value.trim());
-    const generatedHeader = type && subject ? `${type}: ${subject.trim()}` : "";
-    return [explicitHeader || generatedHeader, advisory.body, advisory.footer]
-      .filter((value) => typeof value === "string" && value.trim())
-      .join("\n");
+  if (!isRecord(advisory)) return "";
+
+  if (
+    Object.keys(advisory).some((field) => !STRUCTURED_COMMIT_FIELDS.has(field))
+  ) {
+    return "";
   }
-  return "";
+
+  const message = stringField(advisory, "message");
+  const header = stringField(advisory, "header");
+  const type = stringField(advisory, "type");
+  const scope = stringField(advisory, "scope");
+  const subject = stringField(advisory, "subject");
+  const title = stringField(advisory, "title");
+  const description = stringField(advisory, "description");
+  const body = stringField(advisory, "body");
+  const footer = stringField(advisory, "footer");
+  if (
+    [
+      message,
+      header,
+      type,
+      scope,
+      subject,
+      title,
+      description,
+      body,
+      footer,
+    ].some((value) => value === undefined)
+  ) {
+    return "";
+  }
+  if (footer !== null && !footer.trim()) return "";
+
+  const subjectFields = [subject, title, description].filter(
+    (value) => value !== null,
+  );
+  const headerFields = [header, type, ...subjectFields].filter(
+    (value) => value !== null,
+  );
+  if (message !== null) {
+    if (headerFields.length > 0 || body !== null || footer !== null) return "";
+    return message;
+  }
+  if (header !== null) {
+    if (headerFields.length !== 1 || !header.trim() || /\r?\n/.test(header)) {
+      return "";
+    }
+  } else {
+    const subjectValue = subjectFields[0];
+    if (
+      !type?.trim() ||
+      !subjectValue?.trim() ||
+      subjectFields.length !== 1 ||
+      /[\r\n()]/.test(type) ||
+      /[\r\n()]/.test(scope ?? "") ||
+      /\r?\n/.test(subjectValue)
+    ) {
+      return "";
+    }
+    const scopeSuffix = scope === null ? "" : `(${scope.trim()})`;
+    return [
+      `${type.trim()}${scopeSuffix}: ${subjectValue.trim()}`,
+      body?.trim(),
+      footer?.trim(),
+    ]
+      .filter((value) => value)
+      .join("\n\n");
+  }
+
+  return [header.trim(), body?.trim(), footer?.trim()]
+    .filter((value) => value)
+    .join("\n\n");
 }
 
 function classifySingleAdvisory(advisory) {
@@ -126,9 +201,15 @@ function classifySingleAdvisory(advisory) {
         !BREAKING_FOOTER_PATTERN.test(line),
     ) ||
     breakingFooterIndexes.some(
-      (index) =>
-        index !== footerLines.findLastIndex((line) => line.length > 0),
+      (index) => index !== footerLines.findLastIndex((line) => line.length > 0),
     )
+  ) {
+    return "unknown";
+  }
+  if (
+    breakingFooterIndexes.length > 0 &&
+    lines[breakingFooterIndexes[0] + 1]?.trim() &&
+    lines[breakingFooterIndexes[0]].trim()
   ) {
     return "unknown";
   }
@@ -156,6 +237,22 @@ export function classifyAdvisory(advisory) {
 }
 
 export const classifyImpact = classifyAdvisory;
+
+export function readRepositoryAdvisories(rootDirectory = process.cwd()) {
+  let history;
+  try {
+    history = execFileSync("git", ["log", "--format=%B%x00"], {
+      cwd: rootDirectory,
+      encoding: "utf8",
+    });
+  } catch {
+    return [];
+  }
+  return history
+    .split("\0")
+    .map((message) => message.trim())
+    .filter((message) => message.length > 0);
+}
 
 export function impactToBump(impact) {
   return RELEASE_IMPACTS.includes(impact) &&
@@ -515,19 +612,19 @@ export function validateRelease({
   assetPaths.forEach((assetPath) =>
     assertNonEmptyFile(assetPath, "Release asset"),
   );
-  return {
+  const metadata = {
     version: packageVersion,
     manifestId: manifest.id,
     assetNames: releaseAssets,
     assetPaths,
     ...assertReleaseNotes(rootDirectory, expectedVersion ?? packageVersion),
   };
+  assertPublishableImpact(metadata.impact);
+  return metadata;
 }
 
 export function validatePublishableRelease(options = {}) {
-  const metadata = validateRelease(options);
-  assertPublishableImpact(metadata.impact);
-  return metadata;
+  return validateRelease(options);
 }
 
 function assertArchiveLayout(rootDirectory, archivePath, expectedEntries) {
@@ -601,47 +698,74 @@ function assertCleanWorktree(rootDirectory) {
     );
 }
 
-export function assertGeneratedMainJsProvenance(rootDirectory = process.cwd()) {
+function assertTrackedGeneratedAsset(
+  rootDirectory,
+  relativePath,
+  requiredText,
+) {
   let trackedPath;
   try {
     trackedPath = readOutput(
       "git",
-      ["ls-files", "--error-unmatch", "--", "main.js"],
+      ["ls-files", "--error-unmatch", "--", relativePath],
       rootDirectory,
     );
   } catch {
-    throw new Error("Generated main.js must be tracked by Git");
+    throw new Error(`Generated ${relativePath} must be tracked by Git`);
   }
-  if (trackedPath !== "main.js") {
-    throw new Error("Generated main.js must be tracked by Git");
+  if (trackedPath !== relativePath) {
+    throw new Error(`Generated ${relativePath} must be tracked by Git`);
   }
 
-  const bundlePath = join(rootDirectory, "main.js");
-  assertNonEmptyFile(bundlePath, "Generated main.js");
-  const bundle = readFileSync(bundlePath, "utf8");
-  if (!bundle.includes("THIS IS A GENERATED/BUNDLED FILE BY ESBUILD")) {
+  const assetPath = join(rootDirectory, relativePath);
+  assertNonEmptyFile(assetPath, `Generated ${relativePath}`);
+  if (requiredText && !readFileSync(assetPath, "utf8").includes(requiredText)) {
     throw new Error(
-      "Generated main.js is missing the ESBuild provenance banner",
+      `Generated ${relativePath} is missing its provenance marker`,
     );
   }
 
   try {
-    execFileSync("git", ["diff", "--quiet", "HEAD", "--", "main.js"], {
+    execFileSync("git", ["diff", "--quiet", "HEAD", "--", relativePath], {
       cwd: rootDirectory,
       stdio: "ignore",
     });
   } catch {
     throw new Error(
-      "Generated main.js differs from the tracked checkout after build",
+      `Generated ${relativePath} differs from the tracked checkout after build`,
     );
   }
+}
+
+export function assertGeneratedMainJsProvenance(rootDirectory = process.cwd()) {
+  assertTrackedGeneratedAsset(
+    rootDirectory,
+    "main.js",
+    "THIS IS A GENERATED/BUNDLED FILE BY ESBUILD",
+  );
+}
+
+export function assertGeneratedArtifactProvenance(
+  rootDirectory = process.cwd(),
+) {
+  assertGeneratedMainJsProvenance(rootDirectory);
+  const stylesPath = join(rootDirectory, "styles.css");
+  if (!existsSync(stylesPath)) return;
+
+  const sourceStylesPath = join(rootDirectory, "src", "styles.css");
+  assertNonEmptyFile(stylesPath, "Generated styles.css");
+  assertNonEmptyFile(sourceStylesPath, "Source styles.css");
+  if (!readFileSync(stylesPath).equals(readFileSync(sourceStylesPath))) {
+    throw new Error("Generated styles.css differs from src/styles.css");
+  }
+  assertTrackedGeneratedAsset(rootDirectory, "styles.css");
 }
 
 export function runRepositoryChecks(rootDirectory = process.cwd()) {
   for (const script of ["typecheck", "test", "lint", "build"]) {
     run("corepack", ["pnpm", "run", script], rootDirectory);
   }
-  assertGeneratedMainJsProvenance(rootDirectory);
+  assertGeneratedArtifactProvenance(rootDirectory);
 }
 
 function updateMetadata(rootDirectory, version) {
@@ -700,6 +824,18 @@ export function prepareRelease({
   return { currentVersion, nextVersion, impact, bump: impactToBump(impact) };
 }
 
+function parseExplicitAdvisory(argument) {
+  const value = argument.trim();
+  if (value.startsWith("[") || value.startsWith("{")) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return argument;
+    }
+  }
+  return argument;
+}
+
 function parseCliArguments(argumentsList) {
   const cliArguments = argumentsList.filter((argument) => argument !== "--");
   const knownCommands = [
@@ -714,50 +850,72 @@ function parseCliArguments(argumentsList) {
     ? cliArguments.shift()
     : "package";
   let impact;
-  const impactIndex = cliArguments.indexOf("--impact");
-  if (impactIndex !== -1) {
-    impact = cliArguments[impactIndex + 1];
-    cliArguments.splice(impactIndex, 2);
-  }
-  let message;
-  const messageIndex = cliArguments.findIndex(
-    (argument) =>
+  const suppliedAdvisories = [];
+  const positionalArguments = [];
+  for (let index = 0; index < cliArguments.length; index += 1) {
+    const argument = cliArguments[index];
+    if (argument === "--impact") {
+      impact = cliArguments[index + 1];
+      index += 1;
+      continue;
+    }
+    if (
       argument === "--message" ||
       argument === "-m" ||
-      argument === "--input",
-  );
-  if (messageIndex !== -1) {
-    message = cliArguments[messageIndex + 1] ?? "";
-    cliArguments.splice(messageIndex, 2);
-  } else {
-    const inlineMessageIndex = cliArguments.findIndex(
-      (argument) =>
-        argument.startsWith("--message=") ||
-        argument.startsWith("--input="),
-    );
-    if (inlineMessageIndex !== -1) {
-      const argument = cliArguments[inlineMessageIndex];
-      const prefix = argument.startsWith("--input=")
-        ? "--input="
-        : "--message=";
-      message = argument.slice(prefix.length);
-      cliArguments.splice(inlineMessageIndex, 1);
+      argument === "--input"
+    ) {
+      suppliedAdvisories.push(
+        parseExplicitAdvisory(cliArguments[index + 1] ?? ""),
+      );
+      index += 1;
+      continue;
     }
+    const inlinePrefix = ["--message=", "--input="].find((prefix) =>
+      argument.startsWith(prefix),
+    );
+    if (inlinePrefix) {
+      suppliedAdvisories.push(
+        parseExplicitAdvisory(argument.slice(inlinePrefix.length)),
+      );
+      continue;
+    }
+    positionalArguments.push(argument);
   }
+
+  const advisoryArguments =
+    suppliedAdvisories.length > 0
+      ? [...suppliedAdvisories, ...positionalArguments]
+      : positionalArguments;
   return {
     command,
-    expectedVersion: cliArguments[0],
-    outputPath: cliArguments[1],
+    expectedVersion: positionalArguments[0],
+    outputPath: positionalArguments[1],
     impact,
-    advisory: message ?? cliArguments.join(" "),
+    advisory:
+      advisoryArguments.length === 1
+        ? advisoryArguments[0]
+        : advisoryArguments.length > 1
+          ? advisoryArguments
+          : undefined,
+    hasSuppliedAdvisory: suppliedAdvisories.length > 0,
   };
 }
 
 function runCli() {
-  const { command, expectedVersion, outputPath, impact, advisory } =
-    parseCliArguments(process.argv.slice(2));
+  const {
+    command,
+    expectedVersion,
+    outputPath,
+    impact,
+    advisory,
+    hasSuppliedAdvisory,
+  } = parseCliArguments(process.argv.slice(2));
   if (command === "classify") {
-    process.stdout.write(`${classifyAdvisory(advisory)}\n`);
+    const classificationInput =
+      hasSuppliedAdvisory || advisory !== undefined
+        ? advisory
+        : readRepositoryAdvisories();
+    process.stdout.write(`${classifyAdvisory(classificationInput)}\n`);
   } else if (command === "prepare") {
     const result = prepareRelease({ impact });
     process.stdout.write(
@@ -772,8 +930,8 @@ function runCli() {
       `Release publish check passed for ${metadata.version}`,
     );
   } else if (command === "verify-bundle") {
-    assertGeneratedMainJsProvenance();
-    process.stdout.write("Generated main.js provenance check passed");
+    assertGeneratedArtifactProvenance();
+    process.stdout.write("Generated artifact provenance check passed");
   } else if (command === "package") {
     process.stdout.write(
       `Release package created -> ${packageRelease({ expectedVersion, outputPath }).archivePath}`,

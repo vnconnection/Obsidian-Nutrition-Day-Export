@@ -138,3 +138,16 @@ jobs:
           jq -e --argjson expected "$expected_digests" '
             ([.assets[] | {name, digest}] | sort_by(.name)) == ($expected | sort_by(.name))
           ' <<<"$release_json" >/dev/null
+
+      - name: Verify final remote tag ref
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          final_remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG^{}" | awk 'NR == 1 {print $1}')"
+          if [[ -z "$final_remote_tag_sha" ]]; then
+            final_remote_tag_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk 'NR == 1 {print $1}')"
+          fi
+          if [[ -z "$final_remote_tag_sha" || "$final_remote_tag_sha" != "$checked_out_sha" ]]; then
+            echo "Final remote tag $RELEASE_TAG does not point to $checked_out_sha: $final_remote_tag_sha" >&2
+            exit 1
+          fi

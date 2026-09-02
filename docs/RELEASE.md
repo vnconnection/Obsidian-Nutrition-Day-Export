@@ -35,9 +35,8 @@ release. No alternative headings are accepted. The fields must use the exact
 forms `Impact: major|minor|patch|none|unknown`, `Rationale: <prose>`, and
 appear as inline lines before `## Summary` in the order `Date`, `Impact`,
 `Rationale`. All three fields and the required sections must contain meaningful
-content. Validation accepts `none` and `unknown` so a no-release decision or a
-blocking classification can be recorded and checked; neither is a bumpable
-impact or a basis for release preparation, packaging, or publication. The notes
+content. `none` and `unknown` remain classifier results, but release validation
+and every release-readiness boundary reject them as non-publishable. The notes
 must contain a concrete user-visible change. The GitHub Release body is taken
 from this notes file, not generated automatically.
 
@@ -52,28 +51,34 @@ corepack pnpm run release:prepare -- --impact major
 ```
 
 The classifier returns the canonical impacts `major`, `minor`, `patch`, `none`,
-or `unknown`. Conventional headers map `feat` to `minor`, `fix` and `perf` to
-`patch`, and documentation/test/maintenance types to `none`. A `!` header or a
-`BREAKING-CHANGE` footer maps to `major`. A mixed result containing `unknown`
-is `unknown` and blocks version selection.
+or `unknown`. It accepts one normalized text message, a structured commit
+object, or arrays (including nested arrays) of those inputs. Conventional
+headers map `feat` to `minor`, `fix` and `perf` to `patch`, and
+`docs`/`test`/`tests`/`chore`/`ci`/`build`/`refactor`/`style` to `none`. A `!`
+header or a terminal non-empty `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer
+maps to `major`; a breaking footer must be separated from the header/body by a
+blank line. Empty or malformed inputs, non-terminal footers, and continued
+footer text are `unknown`. A mixed result containing `unknown` is `unknown` and
+blocks version selection.
 
 `major` maps to `(X+1).0.0`, `minor` maps to `X.(Y+1).0`, and `patch` maps to
 `X.Y.(Z+1)`, including when `X` is `0`. Preparation
 runs the pnpm typecheck, tests, lint, and production build, then updates
 package and plugin metadata. It never stages, commits, tags, pushes a branch
 or tag, creates or edits a GitHub Release, or uploads assets. `none` and
-`unknown` are intentionally rejected by preparation rather than guessed; use
-`release:validate` to check their notes without selecting a version bump.
+`unknown` are intentionally rejected by preparation rather than guessed.
 
-To inspect an advisory without changing files:
+To inspect explicitly supplied advisory input without changing files:
 
 ```bash
 corepack pnpm run release:classify -- --input $'feat: change export format\n\nBREAKING-CHANGE: migrate callers'
+corepack pnpm run release:classify -- --input '["fix: patch", {"type":"feat","subject":"capability"}]'
 ```
 
 The same classifier input can be passed explicitly with `--input` (or its
-`--message`/`-m` aliases); these options take the advisory text as their next
-argument and never read or modify repository files.
+`--message`/`-m` aliases); repeat the options to aggregate multiple messages.
+Without explicit input, `release:classify` reads the repository commit history.
+These operations never modify repository files.
 
 The safe aliases `release:patch`, `release:minor`, and `release:major` invoke
 the same explicit local preparation with `patch`, `minor`, and `major` impact.
@@ -86,13 +91,14 @@ corepack pnpm run release:package -- <X.Y.Z> artifacts/nutrition-day-export-<X.Y
 ```
 
 `release:validate` is read-only and checks notes, metadata, and non-empty root
-assets. `release:publish-check` performs the same validation and then rejects
-`none` and `unknown` before a publishable boundary. `release:package` applies
-that same rejection and only creates a local ZIP; it contains exactly
+assets, then rejects `none` and `unknown` as non-publishable. The
+`release:publish-check` alias applies the same release-readiness decision.
+`release:package` applies that same rejection and only creates a local ZIP; it contains exactly
 `main.js`, `manifest.json`, and `styles.css` when present, directly at the
 archive root. Neither command publishes anything. The workflow additionally
-checks the tracked generated `main.js` after build, rejects `none` and
-`unknown`, checks the remote tag target, release status, exact asset set,
+checks the tracked generated `main.js` and optional `styles.css` after build,
+rejects `none` and `unknown`, checks the remote tag target, release status,
+exact asset set,
 non-zero sizes, and SHA-256 digests for every published asset.
 
 ## GitHub Actions
@@ -106,7 +112,8 @@ impacts, and packages the root-layout ZIP. The workflow creates or updates the
 GitHub Release with the authored notes and uploads `main.js`, `manifest.json`, the
 optional `styles.css`, and the ZIP. A final API read verifies the tag, exact
 authored body, exact asset set (including absence of stale extras), non-empty
-assets, and SHA-256 digests.
+assets, and SHA-256 digests. The remote tag ref is checked again after the final
+release API and digest verification.
 
 Do not push or create a tag as part of local preparation. Publish only after
 reviewing the prepared metadata, authored notes, generated `main.js`, and the

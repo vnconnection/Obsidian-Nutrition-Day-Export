@@ -87,11 +87,11 @@ Preparation runs the repository checks and updates `package.json`,
 `manifest.json`, and `versions.json` locally. It does not commit, tag, push, or
 publish or stage files. Use `corepack pnpm run release:classify -- --input <advisory>`
 (or the `--message`/`-m` aliases) to classify a release advisory without
-changing files. The canonical notes put
-`Date`, `Impact`, and `Rationale` inline before `## Summary`. Validation accepts
-`none` and `unknown` for recorded no-release or blocking decisions, while
-preparation, packaging, and the publish workflow accept only bumpable `major`,
-`minor`, or `patch` impacts. See
+changing files. The classifier accepts normalized text messages, structured
+commit objects, and nested arrays; without explicit input it reads repository
+history. The canonical notes put `Date`, `Impact`, and `Rationale` inline before
+`## Summary`. `none` and `unknown` remain classifier results, but validation,
+packaging, and the publish workflow reject them as non-publishable. See
 [`docs/RELEASE.md`](docs/RELEASE.md) for the required notes sections,
 validation, packaging, and the bare-tag GitHub Actions flow.
 
