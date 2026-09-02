@@ -69,16 +69,19 @@ This repository publishes tagged GitHub Releases for BRAT. The release tag and
 the versions in `package.json`, `manifest.json`, and `versions.json` use the
 same semver value.
 
-For a minor release, run:
+For a release, first author `docs/releases/<X.Y.Z>.md`, then prepare the version
+from a clean worktree with an explicit impact:
 
 ```bash
-pnpm run release:minor
+corepack pnpm run release:prepare -- --impact fix
+corepack pnpm run release:prepare -- --impact feat
+corepack pnpm run release:prepare -- --impact breaking
 ```
 
-The command runs the checks, bumps the version, builds `main.js`, pushes the
-commit and tag, and creates a GitHub Release with the BRAT assets. The release
-requires an authenticated GitHub account with push and release permissions for
-`Kiep13/Obsidian-Nutrition-Day-Export`.
+Preparation runs the repository checks and updates `package.json`,
+`manifest.json`, and `versions.json` locally. It does not commit, tag, push, or
+publish. See [`docs/RELEASE.md`](docs/RELEASE.md) for validation, packaging, and
+the bare-tag GitHub Actions flow.
 
 ## Testing
 

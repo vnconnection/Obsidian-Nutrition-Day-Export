@@ -14,14 +14,15 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test-setup.ts vitest.config.ts --ext .ts --ignore-pattern 'src/**/*.test.ts'",
+    "lint": "eslint src test-setup.ts vitest.config.ts release.mjs --ext .ts,.mjs --ignore-pattern 'src/**/*.test.ts'",
     "format": "prettier --write .",
     "check": "tsc --noEmit && vitest --run && eslint src test-setup.ts vitest.config.ts --ext .ts --ignore-pattern 'src/**/*.test.ts' && node esbuild.config.mjs production",
     "preversion": "tsc --noEmit && vitest --run && eslint src test-setup.ts vitest.config.ts --ext .ts --ignore-pattern 'src/**/*.test.ts' && node esbuild.config.mjs production",
     "version": "node version-bump.mjs",
-    "release": "node release.mjs",
-    "release:minor": "corepack pnpm version minor && node release.mjs",
-    "release:patch": "corepack pnpm version patch && node release.mjs"
+    "release": "node release.mjs package",
+    "release:prepare": "node release.mjs prepare",
+    "release:validate": "node release.mjs validate",
+    "release:package": "node release.mjs package"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
