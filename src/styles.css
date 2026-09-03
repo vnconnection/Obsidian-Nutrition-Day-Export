@@ -1,0 +1,51 @@
+.nutrition-day-export-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nutrition-day-export-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nutrition-day-export-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nutrition-day-export-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nutrition-day-export-button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.nutrition-day-export-preview {
+  width: 100%;
+  min-height: 220px;
+  font-family: var(--font-monospace);
+  resize: vertical;
+}
+
+.nutrition-day-export-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nutrition-day-export-error-card {
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+}
+
+.nutrition-day-export-error-title {
+  font-weight: 600;
+}

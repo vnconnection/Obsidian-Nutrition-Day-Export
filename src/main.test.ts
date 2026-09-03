@@ -18,6 +18,12 @@ describe("NutritionDayExportPlugin", () => {
     expect(plugin.settings.nutrientsFolder).toBe("_custom_nutrients");
     expect(plugin.addRibbonIcon).toHaveBeenCalledOnce();
     expect(plugin.addCommand).toHaveBeenCalledOnce();
+    expect(plugin.addCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "open-nutrition-day-export",
+        name: "Open Modal",
+      }),
+    );
     expect(plugin.addSettingTab).toHaveBeenCalledOnce();
   });
 });

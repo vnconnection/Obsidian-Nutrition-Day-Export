@@ -42,6 +42,7 @@ export interface SourceReference {
   lineNumber: number;
   rawLine: string;
   rawEntry: string;
+  sectionHeading?: string;
 }
 
 export interface AmountValue {
@@ -55,6 +56,7 @@ export interface LinkedFoodEntry {
   displayName: string;
   linkTarget: string;
   amount: AmountValue;
+  price: number | null;
   source: SourceReference;
 }
 
@@ -62,6 +64,7 @@ export interface InlineFoodEntry {
   kind: "inline";
   displayName: string;
   amount: AmountValue;
+  price: number | null;
   metrics: NutritionMetrics;
   source: SourceReference;
 }
@@ -73,6 +76,7 @@ export interface FoodEntry {
   name: string;
   amount: number;
   unit: UnitKey;
+  price?: number | null;
   sourcePath: string;
   lineNumber: number;
 }
@@ -118,8 +122,10 @@ export interface NutrientNote extends NutritionMetrics {
 export interface ExportLine {
   productName: string;
   amount: AmountValue;
+  price: number | null;
   metrics: NutritionMetrics;
   source: SourceReference;
+  sectionHeading?: string;
   text: string;
 }
 

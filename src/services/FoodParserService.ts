@@ -15,6 +15,7 @@ import { parseWikilink } from "../utils/markdownUtils";
 const HEADING_PATTERN = /^(#{1,6})\s+(.*)$/;
 const FOOD_MARKER_PATTERN = /#food\b/gi;
 const AMOUNT_TOKEN_PATTERN = /^((?:\d+(?:[.,]\d+)?|\.\d+))(g|ml|pc|г|мл|шт)$/i;
+const PRICE_TOKEN_PATTERN = /^((?:\d+(?:[.,]\d+)?|\.\d+))€$/i;
 const NUTRIENT_TOKEN_PATTERN =
   /^((?:\d+(?:[.,]\d+)?|\.\d+))(kcal|prot|fat|satfat|carbs|sugar|fiber|sodium)$/i;
 
@@ -89,7 +90,13 @@ export class FoodParserService {
     markdown: string,
     headingText: string,
   ): { results: ParseResult[]; sectionFound: boolean } {
-    return this.parseEntriesInRange(dailyFile, markdown, headingText);
+    return this.parseEntriesInRange(
+      dailyFile,
+      markdown,
+      headingText,
+      null,
+      true,
+    );
   }
 
   public parseFoodEntries(
@@ -132,6 +139,7 @@ export class FoodParserService {
     let insideTargetSection = targetHeading === null;
     let sectionFound = targetHeading === null;
     let insideFence = false;
+    let currentSectionHeading: string | null = null;
     const results: ParseResult[] = [];
 
     for (const [lineIndex, sourceLine] of lines.entries()) {
@@ -164,6 +172,9 @@ export class FoodParserService {
           ) {
             insideTargetSection = true;
             sectionFound = true;
+            currentSectionHeading = allowMixedHeadingLevels
+              ? null
+              : currentHeadingText;
           }
           continue;
         }
@@ -175,6 +186,8 @@ export class FoodParserService {
         ) {
           break;
         }
+
+        currentSectionHeading = currentHeadingText;
       }
 
       if (!insideTargetSection || insideFence) {
@@ -198,6 +211,9 @@ export class FoodParserService {
           lineNumber: lineIndex + 1,
           rawLine: sourceLine,
           rawEntry,
+          ...(currentSectionHeading
+            ? { sectionHeading: currentSectionHeading }
+            : {}),
         };
         results.push(this.parseRawEntry(source));
       }
@@ -432,6 +448,7 @@ export class FoodParserService {
         displayName: wikilink.displayName,
         linkTarget: wikilink.linkTarget,
         amount: amount.amount,
+        price: this.parsePriceToken(trailingBody.trim().split(/\s+/)[1]),
         source,
       },
     };
@@ -494,7 +511,11 @@ export class FoodParserService {
       return amountResult;
     }
 
-    const nutrientTokens = tokens.slice(amountTokenIndex + 1);
+    const trailingTokens = tokens.slice(amountTokenIndex + 1);
+    const price = this.parsePriceToken(trailingTokens[0]);
+    const nutrientTokens = this.removeTrailingDuplicateCalories(
+      price === null ? trailingTokens : trailingTokens.slice(1),
+    );
     while (
       nutrientTokens.at(-1)?.toLowerCase() === "and" ||
       nutrientTokens.at(-1)?.toLowerCase() === "и"
@@ -514,6 +535,7 @@ export class FoodParserService {
       kind: "inline",
       displayName: productName,
       amount: amountResult.amount,
+      price,
       metrics: metricsResult.metrics,
       source,
     };
@@ -592,6 +614,37 @@ export class FoodParserService {
         originalUnit: rawUnit,
       },
     };
+  }
+
+  private parsePriceToken(rawToken: string | undefined): number | null {
+    if (!rawToken) {
+      return null;
+    }
+
+    const priceMatch = rawToken.match(PRICE_TOKEN_PATTERN);
+    if (!priceMatch?.[1]) {
+      return null;
+    }
+
+    return Number.parseFloat(priceMatch[1].replace(",", "."));
+  }
+
+  private removeTrailingDuplicateCalories(nutrientTokens: string[]): string[] {
+    if (nutrientTokens.length !== NUTRITION_METRIC_KEYS.length + 1) {
+      return nutrientTokens;
+    }
+
+    const trailingToken = nutrientTokens.at(-1);
+    const trailingMatch = trailingToken?.match(NUTRIENT_TOKEN_PATTERN);
+    const hasEarlierCalories = nutrientTokens
+      .slice(0, -1)
+      .some((token) => token.match(NUTRIENT_TOKEN_PATTERN)?.[2]?.toLowerCase() === "kcal");
+
+    if (trailingMatch?.[2]?.toLowerCase() === "kcal" && hasEarlierCalories) {
+      return nutrientTokens.slice(0, -1);
+    }
+
+    return nutrientTokens;
   }
 
   private parseInlineMetrics(
