@@ -88,6 +88,8 @@ describe("ExportService", () => {
       dailyMarkdown: `## Nutrition
 # Breakfast 8:30
 #food [[Product]] 10g
+#food [[Liquid product]] 150ml
+#food Inline g 40g 80kcal 12prot 16fat 4satfat 20carbs 8sugar 6fiber 2sodium
 #food Inline ml 25ml 50kcal 10prot 20fat 5satfat 30carbs 15sugar 8fiber 4sodium
 ## Lunch 14:30
 #food [[Piece product]] 2pc
@@ -104,6 +106,18 @@ describe("ExportService", () => {
           fiber: 42.8,
           sodium: 314.4,
           serving_size: 55,
+        }),
+        createNutrientFile("_nutrients/Liquid product.md", {
+          name: "Liquid product",
+          calories: 5,
+          protein: 1.2,
+          fats: 3.4,
+          saturated_fats: 0.8,
+          carbs: 9.1,
+          sugar: 2.3,
+          fiber: 0.4,
+          sodium: 7.6,
+          serving_size: 250,
         }),
         createNutrientFile("_nutrients/Piece product.md", {
           name: "Piece product",
@@ -133,6 +147,10 @@ describe("ExportService", () => {
         "**Breakfast 8:30**",
         "",
         "#food Product 216.00kcal 15.60prot 4.25fat 0.63satfat 64.50carbs 0.41sugar 42.80fiber 314.40sodium 10g",
+        "",
+        "#food Liquid product 5.00kcal 1.20prot 3.40fat 0.80satfat 9.10carbs 2.30sugar 0.40fiber 7.60sodium 150ml",
+        "",
+        "#food Inline g 200.00kcal 30.00prot 40.00fat 10.00satfat 50.00carbs 20.00sugar 15.00fiber 5.00sodium 40g",
         "",
         "#food Inline ml 200.00kcal 40.00prot 80.00fat 20.00satfat 120.00carbs 60.00sugar 32.00fiber 16.00sodium 25ml",
         "",
