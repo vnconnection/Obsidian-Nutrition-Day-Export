@@ -1,4 +1,5 @@
 import type { App, TFile } from "obsidian";
+import { createStructuredError } from "../errors/errorFactories";
 import type { StructuredError } from "../types";
 import { isDailyNoteName, toDailyNoteFileName } from "../utils/dateUtils";
 
@@ -36,14 +37,18 @@ export class DailyNoteService {
         return {
           file: null,
           selectedDate: trimmedDateText,
-          error: {
-            code: "daily_note_not_found",
-            productName: trimmedDateText,
-            reason: `Daily note ${requestedFileName} was not found.`,
-            sourcePath: requestedFileName,
-            lineNumber: 0,
-            rawEntry: trimmedDateText,
-          },
+          error: createStructuredError(
+            "daily_note_not_found",
+            {
+              productName: trimmedDateText,
+              sourcePath: requestedFileName,
+              lineNumber: 0,
+              rawEntry: trimmedDateText,
+            },
+            {
+              requestedFileName,
+            },
+          ),
         };
       }
 
@@ -60,15 +65,12 @@ export class DailyNoteService {
       return {
         file: null,
         selectedDate: null,
-        error: {
-          code: "daily_note_not_found",
+        error: createStructuredError("daily_note_not_found", {
           productName: "Active note",
-          reason:
-            "There is no active daily note and no date override was provided.",
           sourcePath: activeFilePath,
           lineNumber: 0,
           rawEntry: "",
-        },
+        }),
       };
     }
 

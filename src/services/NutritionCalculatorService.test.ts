@@ -1,5 +1,6 @@
 import { TFile } from "obsidian";
 import { describe, expect, it } from "vitest";
+import { createStructuredError } from "../errors/errorFactories";
 import { NutritionCalculatorService } from "./NutritionCalculatorService";
 
 const nutrientNote = {
@@ -80,6 +81,7 @@ describe("NutritionCalculatorService", () => {
     expect(result).toEqual({
       metrics: null,
       error: {
+        category: "nutrient",
         code: "invalid_serving_size",
         productName: "Protein Pudding",
         reason:
@@ -88,6 +90,24 @@ describe("NutritionCalculatorService", () => {
         lineNumber: 12,
         rawEntry: "#food [[Protein Pudding]] 1pc",
       },
+    });
+  });
+
+  it("creates the inline pc conversion error with full source context", () => {
+    expect(
+      createStructuredError("inline_pc_requires_serving_size", {
+        productName: "Product",
+        sourcePath: "Diary/2026.09.04.md",
+        lineNumber: 4,
+        rawEntry: "#food Product 2pc",
+      }),
+    ).toMatchObject({
+      category: "conversion",
+      code: "inline_pc_requires_serving_size",
+      productName: "Product",
+      sourcePath: "Diary/2026.09.04.md",
+      lineNumber: 4,
+      rawEntry: "#food Product 2pc",
     });
   });
 });

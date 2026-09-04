@@ -4,6 +4,7 @@ import {
   DEFAULT_NUTRIENTS_FOLDER,
   OUTPUT_UNIT_LABELS,
 } from "../constants";
+import { createStructuredError } from "../errors/errorFactories";
 import type {
   ExportLine,
   ExportReport,
@@ -87,14 +88,18 @@ export class ExportService {
           : sourceSelection.kind === "heading"
             ? sourceSelection.headingText
             : "the selected source";
-      return {
-        code: "nutrition_section_not_found",
-        productName: sourceHeading,
-        reason: `Section "${sourceHeading}" was not found.`,
-        sourcePath: dailyNoteLookup.file.path,
-        lineNumber: 0,
-        rawEntry: sourceHeading,
-      };
+      return createStructuredError(
+        "nutrition_section_not_found",
+        {
+          productName: sourceHeading,
+          sourcePath: dailyNoteLookup.file.path,
+          lineNumber: 0,
+          rawEntry: sourceHeading,
+        },
+        {
+          sourceHeading,
+        },
+      );
     }
 
     const exportedLines: ExportLine[] = [];

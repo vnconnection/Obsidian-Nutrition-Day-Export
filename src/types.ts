@@ -5,6 +5,12 @@ export type NutritionMetricKey =
 
 export type UnitKey = "g" | "ml" | "pc";
 export type OutputUnitFormat = "metric" | "source";
+export type ExportMode = "consumed" | "per100g";
+export type ErrorCategory =
+  | "source"
+  | "parse"
+  | "nutrient"
+  | "conversion";
 
 export type FoodSourceSelection =
   | { kind: "document" }
@@ -90,9 +96,11 @@ export type StructuredErrorCode =
   | "missing_nutrient_note"
   | "ambiguous_nutrient_note"
   | "invalid_nutrient_field"
-  | "invalid_serving_size";
+  | "invalid_serving_size"
+  | "inline_pc_requires_serving_size";
 
 export interface StructuredError {
+  category: ErrorCategory;
   code: StructuredErrorCode;
   productName: string;
   reason: string;

@@ -3,6 +3,7 @@ import {
   DEFAULT_NUTRIENTS_FOLDER,
   REQUIRED_NUTRIENT_FIELDS,
 } from "../constants";
+import { createStructuredError } from "../errors/errorFactories";
 import type { NutrientNote, StructuredError } from "../types";
 import { normalizeLookupText, splitFrontmatter } from "../utils/markdownUtils";
 
@@ -53,13 +54,17 @@ export class NutrientCatalogService {
     if (matchingEntries.length === 0) {
       return {
         nutrient: null,
-        error: createNutrientError(
+        error: createStructuredError(
           "missing_nutrient_note",
-          displayName,
-          `Nutrient note for "${linkTarget}" was not found.`,
-          sourceFile.path,
-          sourceLineNumber,
-          linkTarget,
+          {
+            productName: displayName,
+            sourcePath: sourceFile.path,
+            lineNumber: sourceLineNumber,
+            rawEntry: linkTarget,
+          },
+          {
+            reason: `Nutrient note for "${linkTarget}" was not found.`,
+          },
         ),
       };
     }
@@ -67,13 +72,17 @@ export class NutrientCatalogService {
     if (matchingEntries.length > 1) {
       return {
         nutrient: null,
-        error: createNutrientError(
+        error: createStructuredError(
           "ambiguous_nutrient_note",
-          displayName,
-          `Multiple nutrient notes match "${linkTarget}".`,
-          sourceFile.path,
-          sourceLineNumber,
-          linkTarget,
+          {
+            productName: displayName,
+            sourcePath: sourceFile.path,
+            lineNumber: sourceLineNumber,
+            rawEntry: linkTarget,
+          },
+          {
+            reason: `Multiple nutrient notes match "${linkTarget}".`,
+          },
         ),
       };
     }
@@ -129,13 +138,17 @@ export class NutrientCatalogService {
     if (!indexEntry) {
       return {
         nutrient: null,
-        error: createNutrientError(
+        error: createStructuredError(
           "missing_nutrient_note",
-          displayName,
-          `Nutrient note for "${displayName}" was not found.`,
-          sourcePath,
-          lineNumber,
-          displayName,
+          {
+            productName: displayName,
+            sourcePath,
+            lineNumber,
+            rawEntry: displayName,
+          },
+          {
+            reason: `Nutrient note for "${displayName}" was not found.`,
+          },
         ),
       };
     }
@@ -143,13 +156,17 @@ export class NutrientCatalogService {
     if (indexEntry.error || !indexEntry.nutrient) {
       return {
         nutrient: null,
-        error: createNutrientError(
+        error: createStructuredError(
           "invalid_nutrient_field",
-          displayName,
-          indexEntry.error ?? "Invalid nutrient note.",
-          sourcePath,
-          lineNumber,
-          displayName,
+          {
+            productName: displayName,
+            sourcePath,
+            lineNumber,
+            rawEntry: displayName,
+          },
+          {
+            reason: indexEntry.error ?? "Invalid nutrient note.",
+          },
         ),
       };
     }
@@ -273,22 +290,4 @@ function parseStrictNumber(rawValue: string): number | null {
   }
   const parsedValue = Number(rawValue.replace(",", "."));
   return Number.isFinite(parsedValue) ? parsedValue : null;
-}
-
-function createNutrientError(
-  code: StructuredError["code"],
-  productName: string,
-  reason: string,
-  sourcePath: string,
-  lineNumber: number,
-  rawEntry: string,
-): StructuredError {
-  return {
-    code,
-    productName,
-    reason,
-    sourcePath,
-    lineNumber,
-    rawEntry,
-  };
 }

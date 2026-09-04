@@ -107,4 +107,31 @@ serving_size: 50
       prot: 10,
     });
   });
+
+  it("returns categorized errors when a nutrient note is missing", async () => {
+    const app = new App();
+    const dailyFile = new TFile("Diary/2026.07.18.md");
+    app.vault = new MockVault([], {});
+
+    const result = await new NutrientCatalogService(app).resolveLinkedNutrient(
+      "Missing Product",
+      "Missing Product",
+      dailyFile,
+      8,
+      "_nutrients",
+    );
+
+    expect(result).toEqual({
+      nutrient: null,
+      error: {
+        category: "nutrient",
+        code: "missing_nutrient_note",
+        productName: "Missing Product",
+        reason: 'Nutrient note for "Missing Product" was not found.',
+        sourcePath: "Diary/2026.07.18.md",
+        lineNumber: 8,
+        rawEntry: "Missing Product",
+      },
+    });
+  });
 });

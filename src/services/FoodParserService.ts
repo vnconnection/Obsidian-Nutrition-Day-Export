@@ -1,4 +1,5 @@
 import { NUTRITION_METRIC_KEYS, UNIT_ALIASES } from "../constants";
+import { createStructuredError } from "../errors/errorFactories";
 import type { TFile } from "obsidian";
 import type {
   AmountValue,
@@ -740,13 +741,11 @@ export class FoodParserService {
     reason: string,
     source: SourceReference,
   ): StructuredError {
-    return {
-      code,
+    return createStructuredError(code, {
       productName,
-      reason,
       sourcePath: source.file.path,
       lineNumber: source.lineNumber,
       rawEntry: source.rawEntry,
-    };
+    }, { reason });
   }
 }

@@ -239,6 +239,7 @@ Notes with no food entries.`;
     expect(result.results[0]).toEqual({
       ok: false,
       error: {
+        category: "parse",
         code: "incomplete_nutrition_line",
         productName: "Baked casserole",
         reason: "Inline food must contain all nutrition fields exactly once.",
@@ -262,6 +263,7 @@ Notes with no food entries.`;
     expect(result.results[0]).toEqual({
       ok: false,
       error: {
+        category: "parse",
         code: "unknown_unit",
         productName: "Cottage cheese",
         reason: 'Unknown unit "oz".',

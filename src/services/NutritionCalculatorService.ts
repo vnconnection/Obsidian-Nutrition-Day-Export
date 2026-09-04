@@ -1,3 +1,4 @@
+import { createStructuredError } from "../errors/errorFactories";
 import type {
   NutrientNote,
   NutritionMetrics,
@@ -19,14 +20,18 @@ export class NutritionCalculatorService {
     if (typeof ratioResult !== "number") {
       return {
         metrics: null,
-        error: {
-          code: "invalid_serving_size",
-          productName,
-          reason: ratioResult,
-          sourcePath,
-          lineNumber,
-          rawEntry,
-        },
+        error: createStructuredError(
+          "invalid_serving_size",
+          {
+            productName,
+            sourcePath,
+            lineNumber,
+            rawEntry,
+          },
+          {
+            reason: ratioResult,
+          },
+        ),
       };
     }
 
