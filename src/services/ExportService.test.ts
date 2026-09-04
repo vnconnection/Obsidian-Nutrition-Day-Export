@@ -162,6 +162,27 @@ describe("ExportService", () => {
       ].join("\n"),
     );
   });
+
+  it("returns the full structured source error when the Nutrition section is missing", async () => {
+    const app = createApp({
+      dailyMarkdown: `# Title
+#food Outside nutrition 10g 20kcal 1prot 2fat 3satfat 4carbs 5sugar 6fiber 7sodium`,
+    });
+
+    const report = await new ExportService(app).buildReport("", settings, {
+      kind: "nutrition",
+    });
+
+    expect(report).toEqual({
+      category: "source",
+      code: "nutrition_section_not_found",
+      productName: "## Nutrition",
+      reason: 'Section "## Nutrition" was not found.',
+      sourcePath: "Diary/2026.09.04.md",
+      lineNumber: 0,
+      rawEntry: "## Nutrition",
+    });
+  });
 });
 
 function createApp({
