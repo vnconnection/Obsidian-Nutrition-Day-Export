@@ -85,6 +85,19 @@ const inlineGEntry: InlineFoodEntry = {
   },
 };
 
+const inlineZeroGEntry: InlineFoodEntry = {
+  kind: "inline",
+  displayName: "Inline Zero",
+  amount: { value: 0, unit: "g", originalUnit: "g" },
+  price: null,
+  metrics: nutrientMetrics,
+  source: {
+    ...source,
+    rawLine: "#food Inline Zero 0g 50kcal",
+    rawEntry: "#food Inline Zero 0g 50kcal",
+  },
+};
+
 const inlineMlEntry: InlineFoodEntry = {
   kind: "inline",
   displayName: "Inline Ml",
@@ -117,9 +130,18 @@ describe("ExportModeStrategy", () => {
 
     const consumed = new ConsumedExportStrategy();
 
-    expect(consumed.resolveLinked(linkedGEntry, nutrientNote)).toMatchObject({
+    expect(consumed.resolveLinked(linkedGEntry, nutrientNote)).toEqual({
       values: {
-        metrics: { kcal: expect.any(Number) },
+        metrics: {
+          kcal: 30,
+          prot: 6,
+          fat: 12,
+          satfat: 3,
+          carbs: 18,
+          sugar: 9,
+          fiber: 4.8,
+          sodium: 2.4,
+        },
         amount: linkedGEntry.amount,
       },
     });
@@ -212,6 +234,24 @@ describe("ExportModeStrategy", () => {
       error: {
         category: "conversion",
         code: "inline_pc_requires_serving_size",
+      },
+    });
+  });
+
+  it("returns a structured error for non-positive inline g amounts in per-100g mode", async () => {
+    const { Per100gExportStrategy } = await import("./ExportModeStrategy");
+
+    const per100g = new Per100gExportStrategy();
+
+    expect(per100g.resolveInline(inlineZeroGEntry)).toEqual({
+      error: {
+        category: "parse",
+        code: "missing_amount",
+        productName: "Inline Zero",
+        reason: "Inline per-100g conversion requires a positive g or ml amount.",
+        sourcePath: "Diary/2026.09.04.md",
+        lineNumber: 12,
+        rawEntry: "#food Inline Zero 0g 50kcal",
       },
     });
   });

@@ -117,6 +117,24 @@ export class Per100gExportStrategy implements ExportModeStrategy {
       };
     }
 
+    if (entry.amount.value <= 0) {
+      return {
+        error: createStructuredError(
+          "missing_amount",
+          {
+            productName: entry.displayName,
+            sourcePath: entry.source.file.path,
+            lineNumber: entry.source.lineNumber,
+            rawEntry: entry.source.rawEntry,
+          },
+          {
+            reason:
+              "Inline per-100g conversion requires a positive g or ml amount.",
+          },
+        ),
+      };
+    }
+
     const ratio = 100 / entry.amount.value;
     return {
       values: {
