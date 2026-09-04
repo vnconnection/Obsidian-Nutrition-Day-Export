@@ -18,14 +18,13 @@ not persisted in plugin settings or `data.json`.
 
 ## User-visible behavior
 
-The modal displays two mutually exclusive controls with these labels:
+The modal displays two native, mutually exclusive radio buttons with these labels:
 
 - `Per consumed`
 - `Per 100g`
 
-They are implemented with radio semantics, even if the visual treatment is
-checkbox-like. Changing the selection refreshes the report. Existing date,
-source, heading, error, clipboard, and read-only note behavior remains intact.
+Changing the selection refreshes the report. Existing date, source, heading,
+error, clipboard, and read-only note behavior remains intact.
 
 `Per consumed` keeps the existing order:
 
