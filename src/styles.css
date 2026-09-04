@@ -22,6 +22,28 @@
   gap: 6px;
 }
 
+.nutrition-day-export-radio-group {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+}
+
+.nutrition-day-export-radio-group legend {
+  padding: 0 4px;
+  color: var(--text-muted);
+}
+
+.nutrition-day-export-radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nutrition-day-export-radio-option + .nutrition-day-export-radio-option {
+  margin-top: 6px;
+}
+
 .nutrition-day-export-button-row {
   display: flex;
   gap: 8px;

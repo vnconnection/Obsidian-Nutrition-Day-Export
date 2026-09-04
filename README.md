@@ -17,6 +17,7 @@ The plugin is built for a daily-note food logging workflow where nutrition data 
 - Supports linked foods and inline custom foods
 - Preserves optional `€` prices from Food Recalculator entries
 - Exports each successful food as one `#food` line
+- Supports two export bases: `Per consumed` and `Per 100g`
 - Resolves `g`, `ml`, `pc` and `г`, `мл`, `шт`
 - Copies only successful product lines to the clipboard
 - Shows structured per-product errors without changing the source note
@@ -44,6 +45,17 @@ Available settings:
 
 The `source` output-unit setting produces Food Recalculator-compatible `g/ml/pc`
 labels. Prices are exported with two decimal places when present.
+
+The export modal also includes an `Export basis` choice:
+
+- `Per consumed` keeps the current output order and remains the default every
+  time a new modal is opened.
+- `Per 100g` normalizes nutrition values to 100g, keeps the consumed amount at
+  the end of the line, and keeps any price after that amount.
+
+For linked nutrient notes, `pc` entries use `serving_size` to convert the
+consumed amount into grams in `Per 100g` mode. Inline `pc` lines are not
+supported because they do not have a stored gram basis.
 
 ## Development
 

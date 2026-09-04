@@ -1,6 +1,7 @@
 import { Modal, Notice, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type {
+  ExportMode,
   ExportReport,
   FoodSourceOption,
   FoodSourceSelection,
@@ -20,6 +21,7 @@ export class NutritionExportModal extends Modal {
   private readonly getSettings: () => NutritionDayExportSettings;
   private dateText: string;
   private sourceSelection: FoodSourceSelection = { kind: "nutrition" };
+  private exportMode: ExportMode = "consumed";
   private report: ExportReport | null = null;
   private topError: StructuredError | null = null;
   private dateInputEl!: HTMLInputElement;
@@ -97,6 +99,29 @@ export class NutritionExportModal extends Modal {
       }
     });
 
+    const exportModeFieldEl = controlsEl.createDiv({
+      cls: "nutrition-day-export-field",
+    });
+    const exportModeFieldsetEl = exportModeFieldEl.createEl("fieldset", {
+      cls: "nutrition-day-export-radio-group",
+      attr: {
+        "aria-label": "Export basis",
+      },
+    });
+    exportModeFieldsetEl.createEl("legend", { text: "Export basis" });
+    this.createExportModeOption(
+      exportModeFieldsetEl,
+      "nutrition-day-export-mode-consumed",
+      "Per consumed",
+      "consumed",
+    );
+    this.createExportModeOption(
+      exportModeFieldsetEl,
+      "nutrition-day-export-mode-per100g",
+      "Per 100g",
+      "per100g",
+    );
+
     const todayButtonEl = dateFieldEl.createEl("button", {
       text: "Today",
       attr: { type: "button" },
@@ -163,6 +188,7 @@ export class NutritionExportModal extends Modal {
       this.dateText,
       settings,
       this.sourceSelection,
+      this.exportMode,
     );
     if ("note" in result) {
       this.report = result;
@@ -210,6 +236,39 @@ export class NutritionExportModal extends Modal {
       return "nutrition";
     }
     return `heading-${selection.lineNumber}`;
+  }
+
+  private createExportModeOption(
+    containerEl: HTMLElement,
+    inputId: string,
+    labelText: string,
+    exportMode: ExportMode,
+  ): void {
+    const optionRowEl = containerEl.createDiv({
+      cls: "nutrition-day-export-radio-option",
+    });
+    const inputEl = optionRowEl.createEl("input", {
+      attr: {
+        id: inputId,
+        type: "radio",
+        name: "nutrition-day-export-mode",
+      },
+    });
+    inputEl.checked = this.exportMode === exportMode;
+    inputEl.addEventListener("change", () => {
+      if (!inputEl.checked) {
+        return;
+      }
+
+      this.exportMode = exportMode;
+      void this.refresh();
+    });
+    optionRowEl.createEl("label", {
+      text: labelText,
+      attr: {
+        for: inputId,
+      },
+    });
   }
 
   private render(): void {
