@@ -2,11 +2,13 @@ import type { App } from "obsidian";
 import {
   DEFAULT_NUTRITION_HEADING,
   DEFAULT_NUTRIENTS_FOLDER,
+  NUTRITION_METRIC_KEYS,
   OUTPUT_UNIT_LABELS,
 } from "../constants";
 import { createStructuredError } from "../errors/errorFactories";
 import type {
   ExportLine,
+  ExportMode,
   ExportReport,
   FoodSourceOption,
   FoodSourceSelection,
@@ -16,23 +18,30 @@ import type {
 } from "../types";
 import { formatAmount, formatNumber } from "../utils/numberUtils";
 import { DailyNoteService } from "./DailyNoteService";
+import {
+  ConsumedExportStrategy,
+  type ExportModeStrategy,
+  Per100gExportStrategy,
+} from "./ExportModeStrategy";
 import { FoodParserService } from "./FoodParserService";
 import { NutrientCatalogService } from "./NutrientCatalogService";
-import { NutritionCalculatorService } from "./NutritionCalculatorService";
 
 export class ExportService {
   private readonly app: App;
   private readonly dailyNoteService: DailyNoteService;
   private readonly foodParserService: FoodParserService;
   private readonly nutrientCatalogService: NutrientCatalogService;
-  private readonly nutritionCalculatorService: NutritionCalculatorService;
+  private readonly exportModeStrategies: Record<ExportMode, ExportModeStrategy>;
 
   public constructor(app: App) {
     this.app = app;
     this.dailyNoteService = new DailyNoteService(app);
     this.foodParserService = new FoodParserService();
     this.nutrientCatalogService = new NutrientCatalogService(app);
-    this.nutritionCalculatorService = new NutritionCalculatorService();
+    this.exportModeStrategies = {
+      consumed: new ConsumedExportStrategy(),
+      per100g: new Per100gExportStrategy(),
+    };
   }
 
   public getInitialDate(): string {
@@ -65,6 +74,7 @@ export class ExportService {
     dateText: string,
     settings: NutritionDayExportSettings,
     sourceSelection: FoodSourceSelection = { kind: "nutrition" },
+    exportMode: ExportMode = "consumed",
   ): Promise<ExportReport | StructuredError> {
     const dailyNoteLookup = this.dailyNoteService.resolveDailyNote(dateText);
     if (dailyNoteLookup.error || !dailyNoteLookup.file) {
@@ -111,7 +121,11 @@ export class ExportService {
         continue;
       }
 
-      const exportLine = await this.resolveExportLine(entryResult, settings);
+      const exportLine = await this.resolveExportLine(
+        entryResult,
+        settings,
+        exportMode,
+      );
       if (exportLine.error) {
         errors.push(exportLine.error);
         continue;
@@ -142,16 +156,28 @@ export class ExportService {
   private async resolveExportLine(
     entryResult: Extract<ParseResult, { ok: true }>,
     settings: NutritionDayExportSettings,
+    exportMode: ExportMode,
   ): Promise<{ line: ExportLine | null; error: StructuredError | null }> {
+    const strategy = this.exportModeStrategies[exportMode];
+
     if (entryResult.entry.kind === "inline") {
+      const strategyResult = strategy.resolveInline(entryResult.entry);
+      if (strategyResult.error) {
+        return {
+          line: null,
+          error: strategyResult.error,
+        };
+      }
+
       return {
         line: this.createExportLine(
           entryResult.entry.displayName,
-          entryResult.entry.amount,
+          strategyResult.values.amount,
           entryResult.entry.price,
-          entryResult.entry.metrics,
+          strategyResult.values.metrics,
           entryResult.entry.source,
           settings,
+          exportMode,
         ),
         error: null,
       };
@@ -173,31 +199,27 @@ export class ExportService {
       };
     }
 
-    const calculation = this.nutritionCalculatorService.calculateFromNutrient(
+    const strategyResult = strategy.resolveLinked(
+      entryResult.entry,
       nutrientResolution.nutrient,
-      entryResult.entry.amount.value,
-      entryResult.entry.amount.unit,
-      entryResult.entry.displayName,
-      entryResult.entry.source.file.path,
-      entryResult.entry.source.lineNumber,
-      entryResult.entry.source.rawEntry,
     );
 
-    if (calculation.error || !calculation.metrics) {
+    if (strategyResult.error) {
       return {
         line: null,
-        error: calculation.error as StructuredError,
+        error: strategyResult.error,
       };
     }
 
     return {
       line: this.createExportLine(
         entryResult.entry.displayName,
-        entryResult.entry.amount,
+        strategyResult.values.amount,
         entryResult.entry.price,
-        calculation.metrics,
+        strategyResult.values.metrics,
         entryResult.entry.source,
         settings,
+        exportMode,
       ),
       error: null,
     };
@@ -210,22 +232,20 @@ export class ExportService {
     metrics: ExportLine["metrics"],
     source: ExportLine["source"],
     settings: NutritionDayExportSettings,
+    exportMode: ExportMode,
   ): ExportLine {
     const unitLabel =
       OUTPUT_UNIT_LABELS[settings.outputUnitFormat][amount.unit];
     const formattedAmount = `${formatAmount(amount.value, settings.decimalPlaces)}${unitLabel}`;
     const formattedPrice =
       price === null ? "" : ` ${formatNumber(price, 2)}€`;
-    const metricSegments = [
-      `${formatNumber(metrics.kcal, settings.decimalPlaces)}kcal`,
-      `${formatNumber(metrics.prot, settings.decimalPlaces)}prot`,
-      `${formatNumber(metrics.fat, settings.decimalPlaces)}fat`,
-      `${formatNumber(metrics.satfat, settings.decimalPlaces)}satfat`,
-      `${formatNumber(metrics.carbs, settings.decimalPlaces)}carbs`,
-      `${formatNumber(metrics.sugar, settings.decimalPlaces)}sugar`,
-      `${formatNumber(metrics.fiber, settings.decimalPlaces)}fiber`,
-      `${formatNumber(metrics.sodium, settings.decimalPlaces)}sodium`,
-    ];
+    const metricSegments = NUTRITION_METRIC_KEYS.map((metricKey) => {
+      return `${formatNumber(metrics[metricKey], settings.decimalPlaces)}${metricKey}`;
+    });
+    const text =
+      exportMode === "per100g"
+        ? `#food ${productName} ${metricSegments.join(" ")} ${formattedAmount}${formattedPrice}`
+        : `#food ${productName} ${formattedAmount}${formattedPrice} ${metricSegments.join(" ")}`;
 
     return {
       productName,
@@ -236,7 +256,7 @@ export class ExportService {
       ...(source.sectionHeading
         ? { sectionHeading: source.sectionHeading }
         : {}),
-      text: `#food ${productName} ${formattedAmount}${formattedPrice} ${metricSegments.join(" ")}`,
+      text,
     };
   }
 
